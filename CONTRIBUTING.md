@@ -1,20 +1,30 @@
 # Contributing
 
-Bug reports and pull requests are welcome.
+Thanks for your interest in contributing.
 
-## Getting started
+## Getting Started
 
-1. Fork the repo and clone it locally.
-2. Build prerequisites: Visual Studio 2022 (Desktop C++ workload), CMake 3.25+, .NET 9 SDK.
-3. Run `build.bat` to verify your environment before making changes.
+1. Fork the repository
+2. Create a branch for your change
+3. Make your changes
+4. Test your changes locally
+5. Open a pull request
 
-## Pull requests
+## Pull Requests
 
-- Keep changes focused. One feature or fix per PR.
-- The C++ engine targets `/W4 /WX` (zero warnings). The C# projects have nullable and implicit usings enabled.
-- Match the existing code style. No auto-formatters that reformat unrelated lines.
-- No AI attribution in commits.
+- Keep PRs focused on a single change
+- Write a clear description of what you changed and why
+- Reference any related issues
+- Make sure existing functionality isn't broken
 
-## Reporting bugs
+## Reporting Bugs
 
-Open an issue with the path or volume type that triggers the problem, whether you are running elevated, and the Windows version.
+Open an issue with:
+- What you expected to happen
+- What actually happened
+- Steps to reproduce
+- Your environment (OS, language version, etc.)
+
+## Questions
+
+Open an issue. There are no bad questions.
