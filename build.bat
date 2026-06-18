@@ -3,7 +3,7 @@ setlocal
 
 set PROJECT_DIR=%~dp0
 set /p VERSION=<"%PROJECT_DIR%version.txt"
-set BUILD_DIR=%PROJECT_DIR%dist\Size Monitor
+set BUILD_DIR=%PROJECT_DIR%dist\Canopy
 
 echo === Building C++ engine (Release x64) ===
 cmake -S "%PROJECT_DIR%Core" -B "%PROJECT_DIR%Core\build" -A x64 -DCMAKE_BUILD_TYPE=Release
@@ -15,9 +15,9 @@ echo === Publishing WPF app (win-x64, v%VERSION%) ===
 dotnet publish "%PROJECT_DIR%App\SizeMonitor.App.csproj" -c Release -r win-x64 --self-contained true -p:Version=%VERSION% -o "%BUILD_DIR%"
 if errorlevel 1 goto fail
 
-copy /Y "%PROJECT_DIR%Core\build\bin\Release\SizeMonitor.Core.dll" "%BUILD_DIR%\SizeMonitor.Core.dll"
+copy /Y "%PROJECT_DIR%Core\build\bin\Release\Canopy.Core.dll" "%BUILD_DIR%\Canopy.Core.dll"
 if errorlevel 1 (
-    copy /Y "%PROJECT_DIR%Core\build\bin\SizeMonitor.Core.dll" "%BUILD_DIR%\SizeMonitor.Core.dll"
+    copy /Y "%PROJECT_DIR%Core\build\bin\Canopy.Core.dll" "%BUILD_DIR%\Canopy.Core.dll"
 )
 copy /Y "%PROJECT_DIR%version.txt" "%BUILD_DIR%\version.txt"
 

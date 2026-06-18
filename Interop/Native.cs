@@ -11,7 +11,7 @@ public delegate void SmonProgressCallback(
 
 internal static unsafe class Native
 {
-    const string Dll = "SizeMonitor.Core.dll";
+    const string Dll = "Canopy.Core.dll";
 
     [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
     internal static extern IntPtr Smon_BeginScan(

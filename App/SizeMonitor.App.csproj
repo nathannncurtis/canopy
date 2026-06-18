@@ -7,11 +7,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>SizeMonitor</RootNamespace>
-    <AssemblyName>SizeMonitor</AssemblyName>
+    <AssemblyName>Canopy</AssemblyName>
     <Version>1.0.0</Version>
     <Authors>Nathan Curtis</Authors>
-    <Product>Size Monitor</Product>
-    <AssemblyTitle>Size Monitor</AssemblyTitle>
+    <Product>Canopy</Product>
+    <AssemblyTitle>Canopy</AssemblyTitle>
   </PropertyGroup>
 
   <ItemGroup>

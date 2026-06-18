@@ -1,4 +1,4 @@
-# Size Monitor
+# canopy
 
 ![C++](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![C#](https://img.shields.io/badge/C%23-.NET%209-purple)
@@ -10,9 +10,9 @@
 
 ---
 
-## Why Size Monitor?
+## Why Canopy?
 
-Most disk analyzers either scan slowly or feel dated. Size Monitor uses the NTFS Master File Table directly (the same index Windows already maintains) to enumerate every file on a volume in a single pass without opening any files. On large drives this is dramatically faster than walking the directory tree the conventional way.
+Most disk analyzers either scan slowly or feel dated. Canopy uses the NTFS Master File Table directly (the same index Windows already maintains) to enumerate every file on a volume in a single pass without opening any files. On large drives this is dramatically faster than walking the directory tree the conventional way.
 
 - MFT enumeration via USN journal (`FSCTL_ENUM_USN_DATA`) for local NTFS volumes
 - `NtQueryDirectoryFile` with a thread pool for UNC paths (`\\server\share`)
@@ -28,7 +28,7 @@ Most disk analyzers either scan slowly or feel dated. Size Monitor uses the NTFS
 
 ## Usage
 
-Download the latest release ZIP, extract it, and run `SizeMonitor.exe`. The DLL (`SizeMonitor.Core.dll`) must stay alongside the EXE.
+Download the latest release ZIP, extract it, and run `Canopy.exe`. The DLL (`Canopy.Core.dll`) must stay alongside the EXE.
 
 Enter a local path (`C:\`) or a UNC path (`\\server\share`) and click **Scan**.
 
@@ -40,15 +40,15 @@ Enter a local path (`C:\`) or a UNC path (`\\server\share`) and click **Scan**.
 build.bat
 ```
 
-Output lands in `dist\Size Monitor\`. The build is unsigned.
+Output lands in `dist\Canopy\`. The build is unsigned.
 
 Or build components separately:
 
 ```bat
 cmake -S Core -B Core\build -A x64
 cmake --build Core\build --config Release
-dotnet publish App\SizeMonitor.App.csproj -c Release -r win-x64 --self-contained true -o dist\out
-copy Core\build\bin\Release\SizeMonitor.Core.dll dist\out\
+dotnet publish App\SizeMonitor.App.csproj -c Release -r win-x64 --self-contained true -o dist\Canopy
+copy Core\build\bin\Release\Canopy.Core.dll dist\Canopy\
 ```
 
 ## License
