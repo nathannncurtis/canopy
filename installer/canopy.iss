@@ -25,7 +25,7 @@ OutputDir=dist
 OutputBaseFilename={#MyOutputBase}
 Compression=lzma
 SolidCompression=yes
-WizardStyle=modern
+WizardStyle=dynamic
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 
