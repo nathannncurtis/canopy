@@ -28,9 +28,9 @@ public partial class App : Application
     void OnDispatcherException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         Logger.Error("unhandled UI exception", e.Exception);
-        MessageBox.Show(
+        System.Windows.MessageBox.Show(
             $"An unexpected error occurred.\n\nLog: {Logger.LogPath}\n\n{e.Exception.Message}",
-            "Canopy", MessageBoxButton.OK, MessageBoxImage.Error);
+            "Canopy", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
         e.Handled = true;
     }
 
