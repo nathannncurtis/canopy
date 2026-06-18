@@ -49,6 +49,7 @@ public sealed class Treemap : Panel
     {
         Children.Clear();
         if (_result == null || _rootIndex == uint.MaxValue) return;
+        if (_rootIndex >= (uint)_result.Nodes.Length) return; // guard empty result
 
         var children = new List<SizeNodeView>();
         ref readonly ScanNode root = ref _result.Nodes[_rootIndex];

@@ -112,7 +112,11 @@ public partial class MainWindow : FluentWindow
 
     void OnTreeNodeSelected(uint nodeIndex)
     {
-        _treemap?.SetRoot(_result!, nodeIndex);
+        if (_result == null) return;
+        // Only navigate the treemap into directory nodes; selecting a file node
+        // would produce an empty treemap (files have no children).
+        if (((_result.Nodes[nodeIndex].Flags & ScanNodeFlags.Directory) != 0))
+            _treemap?.SetRoot(_result, nodeIndex);
     }
 
     void OnTreemapPathChanged(IReadOnlyList<string> path)

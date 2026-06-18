@@ -61,6 +61,12 @@ public sealed class ScanSession : IDisposable
         _disposed = true;
         if (_handle != IntPtr.Zero)
         {
+            // Cancel any in-progress scan and wait for the native thread to
+            // finish before freeing the context.  Smon_FreeResult destroys the
+            // ScanContext that the native thread is executing inside; calling it
+            // while the thread is still running is a use-after-free.
+            Native.Smon_Cancel(_handle);
+            Native.Smon_Wait(_handle, uint.MaxValue); // blocks until thread exits
             Native.Smon_FreeResult(_handle);
             _handle = IntPtr.Zero;
         }
