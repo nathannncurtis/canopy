@@ -1,4 +1,5 @@
 #include "../include/smon_api.h"
+#include "node_pool.h"
 
 ScanHandle WINAPI Smon_BeginScan(const wchar_t*, SmonProgressCallback, void*)
 {

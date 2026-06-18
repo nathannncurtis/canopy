@@ -1,6 +1,10 @@
 #pragma once
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
+#ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#  define NOMINMAX
+#endif
 #include <windows.h>
 #include <stdint.h>
 
@@ -14,14 +18,15 @@
 #define SMON_FLAG_SYMLINK   0x02u
 #define SMON_FLAG_REPARSE   0x04u
 
+// 32 bytes, naturally aligned -- matches C# [StructLayout(LayoutKind.Sequential, Pack=8)]
 typedef struct ScanNode {
-    uint64_t size;
-    uint32_t parent;
-    uint32_t first_child;
-    uint32_t next_sibling;
+    uint64_t size;         // on-disk bytes; dirs include all descendants
+    uint32_t parent;       // UINT32_MAX = root
+    uint32_t first_child;  // UINT32_MAX = none
+    uint32_t next_sibling; // UINT32_MAX = none
     uint32_t flags;
-    uint32_t name_offset;
-    uint32_t name_len;
+    uint32_t name_offset;  // byte offset into name_buf
+    uint32_t name_len;     // wchar_t count, not bytes
 } ScanNode;
 
 typedef struct ScanResult {
