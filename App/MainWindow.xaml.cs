@@ -1,6 +1,7 @@
 using System.Security.Principal;
 using System.Windows;
 using SizeMonitor.Controls;
+using SizeMonitor.Helpers;
 using SizeMonitor.Interop;
 using Wpf.Ui.Controls;
 
@@ -77,6 +78,7 @@ public partial class MainWindow : FluentWindow
         }
         catch (Exception ex)
         {
+            Logger.Error($"scan failed: {_pathBox.Text.Trim()}", ex);
             _statSize.Text          = $"Error: {ex.Message}";
             _statFiles.Text         = "";
             _statTime.Text          = "";
