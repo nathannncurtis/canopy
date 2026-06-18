@@ -12,7 +12,7 @@
 
 ## Why Size Monitor?
 
-Most disk analyzers either scan slowly or feel dated. Size Monitor uses the NTFS Master File Table directly — the same index Windows already maintains — to enumerate every file on a volume in a single pass without opening any files. On large drives this is dramatically faster than walking the directory tree the conventional way.
+Most disk analyzers either scan slowly or feel dated. Size Monitor uses the NTFS Master File Table directly (the same index Windows already maintains) to enumerate every file on a volume in a single pass without opening any files. On large drives this is dramatically faster than walking the directory tree the conventional way.
 
 - MFT enumeration via USN journal (`FSCTL_ENUM_USN_DATA`) for local NTFS volumes
 - `NtQueryDirectoryFile` with a thread pool for UNC paths (`\\server\share`)

@@ -17,9 +17,6 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
-      - name: Add NuGet source
-        run: dotnet nuget add source https://api.nuget.org/v3/index.json --name nuget.org
-
       - name: Configure CMake
         run: cmake -S Core -B Core/build -A x64 -DCMAKE_BUILD_TYPE=Release
 
