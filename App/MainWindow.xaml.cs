@@ -1,5 +1,6 @@
 using System.Security.Principal;
 using System.Windows;
+using SizeMonitor.Controls;
 using SizeMonitor.Interop;
 using Wpf.Ui.Controls;
 
@@ -10,11 +11,25 @@ public partial class MainWindow : FluentWindow
     ScanSession?             _session;
     CancellationTokenSource? _cts;
     ScanResultManaged?       _result;
+    SizeTreeView?            _treeView;
+    Treemap?                 _treemap;
 
     public MainWindow()
     {
         InitializeComponent();
+        SetupControls();
         Loaded += OnLoaded;
+    }
+
+    void SetupControls()
+    {
+        _treeView = new SizeTreeView();
+        _treeHost.Child = _treeView;
+        _treeView.NodeSelected += OnTreeNodeSelected;
+
+        _treemap = new Treemap();
+        _treemapHost.Child = _treemap;
+        _treemap.PathChanged += OnTreemapPathChanged;
     }
 
     void OnLoaded(object sender, RoutedEventArgs e)
@@ -22,7 +37,7 @@ public partial class MainWindow : FluentWindow
         // Hide elevation badge if running elevated.
         bool elevated = new WindowsPrincipal(WindowsIdentity.GetCurrent())
             .IsInRole(WindowsBuiltInRole.Administrator);
-        _elevBadge.Visibility = elevated ? Visibility.Collapsed : Visibility.Visible;
+        _elevBadge.Visibility  = elevated ? Visibility.Collapsed : Visibility.Visible;
         _emptyState.Visibility = Visibility.Visible;
     }
 
@@ -31,12 +46,12 @@ public partial class MainWindow : FluentWindow
         string path = _pathBox.Text.Trim();
         if (string.IsNullOrEmpty(path)) return;
 
-        _btnScan.IsEnabled     = false;
-        _btnCancel.IsEnabled   = true;
-        _emptyState.Visibility = Visibility.Collapsed;
-        _statSize.Text         = "Scanning...";
-        _statFiles.Text        = "";
-        _statTime.Text         = "";
+        _btnScan.IsEnabled      = false;
+        _btnCancel.IsEnabled    = true;
+        _emptyState.Visibility  = Visibility.Collapsed;
+        _statSize.Text          = "Scanning...";
+        _statFiles.Text         = "";
+        _statTime.Text          = "";
         _statTimeSep.Visibility = Visibility.Collapsed;
 
         _cts = new CancellationTokenSource();
@@ -54,17 +69,17 @@ public partial class MainWindow : FluentWindow
         }
         catch (OperationCanceledException)
         {
-            _statSize.Text         = "Cancelled";
-            _statFiles.Text        = "";
-            _statTime.Text         = "";
+            _statSize.Text          = "Cancelled";
+            _statFiles.Text         = "";
+            _statTime.Text          = "";
             _statTimeSep.Visibility = Visibility.Collapsed;
-            _emptyState.Visibility = Visibility.Visible;
+            _emptyState.Visibility  = Visibility.Visible;
         }
         catch (Exception ex)
         {
-            _statSize.Text         = $"Error: {ex.Message}";
-            _statFiles.Text        = "";
-            _statTime.Text         = "";
+            _statSize.Text          = $"Error: {ex.Message}";
+            _statFiles.Text         = "";
+            _statTime.Text          = "";
             _statTimeSep.Visibility = Visibility.Collapsed;
         }
         finally
@@ -90,6 +105,18 @@ public partial class MainWindow : FluentWindow
         _statFiles.Text         = $"{result.FileCount:N0} files, {result.DirCount:N0} dirs";
         _statTime.Text          = $"{result.ElapsedSec:F1}s";
         _statTimeSep.Visibility = Visibility.Visible;
-        // Tree and treemap will be wired in Phase 7.
+
+        _treeView?.Populate(result);
+        _treemap?.SetRoot(result, 0);
+    }
+
+    void OnTreeNodeSelected(uint nodeIndex)
+    {
+        _treemap?.SetRoot(_result!, nodeIndex);
+    }
+
+    void OnTreemapPathChanged(IReadOnlyList<string> path)
+    {
+        Title = path.Count > 0 ? $"Size Monitor — {string.Join(" > ", path)}" : "Size Monitor";
     }
 }
