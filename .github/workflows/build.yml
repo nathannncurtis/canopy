@@ -1,0 +1,54 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Add NuGet source
+        run: dotnet nuget add source https://api.nuget.org/v3/index.json --name nuget.org
+
+      - name: Configure CMake
+        run: cmake -S Core -B Core/build -A x64 -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build C++ engine
+        run: cmake --build Core/build --config Release
+
+      - name: Publish WPF app
+        shell: pwsh
+        run: |
+          $version = (Get-Content version.txt).Trim()
+          dotnet publish App/SizeMonitor.App.csproj -c Release -r win-x64 --self-contained true "-p:Version=$version" -o "dist/Size Monitor"
+
+      - name: Assemble output
+        shell: pwsh
+        run: |
+          $dll = "Core/build/bin/Release/SizeMonitor.Core.dll"
+          if (-not (Test-Path $dll)) { $dll = "Core/build/bin/SizeMonitor.Core.dll" }
+          Copy-Item $dll "dist/Size Monitor/SizeMonitor.Core.dll"
+          Copy-Item version.txt "dist/Size Monitor/version.txt"
+
+      - name: Create archive
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          Compress-Archive -Path "dist/Size Monitor/*" -DestinationPath "SizeMonitor-$tag.zip"
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SizeMonitor-${{ github.ref_name }}.zip
+          draft: false
+          prerelease: false
