@@ -40,15 +40,27 @@ jobs:
           Copy-Item $dll "dist/Canopy/Canopy.Core.dll"
           Copy-Item version.txt "dist/Canopy/version.txt"
 
-      - name: Create archive
+      - name: Create portable archive
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
           Compress-Archive -Path "dist/Canopy/*" -DestinationPath "Canopy-$tag.zip"
 
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag.TrimStart('v')
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DMyAppVersion=$ver" `
+            "/DMyOutputBase=Canopy-$tag-setup" `
+            installer\canopy.iss
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: Canopy-${{ github.ref_name }}.zip
+          files: |
+            Canopy-${{ github.ref_name }}.zip
+            dist/Canopy-${{ github.ref_name }}-setup.exe
           draft: false
           prerelease: false

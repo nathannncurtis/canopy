@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SizeMonitorCore CXX)
+project(SizeMonitorCore CXX ASM_MASM)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +12,7 @@ add_library(Canopy.Core SHARED
     src/node_pool.cpp
     src/size_rollup.cpp
     asm/simd_sum.cpp
+    asm/simd_sum.asm
 )
 
 target_include_directories(Canopy.Core PRIVATE include)
@@ -28,9 +29,6 @@ if(MSVC)
     target_compile_options(Canopy.Core PRIVATE /W4 /WX /utf-8)
     target_compile_options(Canopy.Core PRIVATE
         $<$<CONFIG:Release>:/O2>
-    )
-    set_source_files_properties(asm/simd_sum.cpp PROPERTIES
-        COMPILE_FLAGS "/arch:AVX2"
     )
 endif()
 
