@@ -21,6 +21,7 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\Canopy
 DefaultGroupName=Canopy
 AllowNoIcons=yes
+SourceDir=..
 OutputDir=dist
 OutputBaseFilename={#MyOutputBase}
 Compression=lzma
