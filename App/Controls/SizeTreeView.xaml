@@ -21,7 +21,7 @@
                 <ProgressBar Grid.Column="1" Height="8" VerticalAlignment="Center"
                              Margin="4,0"
                              Minimum="0" Maximum="1"
-                             Value="{Binding SizeBarFraction}"
+                             Value="{Binding SizeBarFraction, Mode=OneWay}"
                              Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"
                              Background="{DynamicResource CardStrokeColorDefaultBrush}" />
 

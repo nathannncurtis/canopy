@@ -12,3 +12,4 @@ Core/build/
 *.sdf
 *.opensdf
 ipch/
+*.log
