@@ -30,12 +30,13 @@ public sealed class ScanSnapshotStoreTests
     [Fact]
     public async Task ProducesDeterministicBytes()
     {
+        CancellationToken token = TestContext.Current.CancellationToken;
         string first = TempPath(), second = TempPath();
         try
         {
-            await ScanSnapshotStore.SaveAsync(first, Result());
-            await ScanSnapshotStore.SaveAsync(second, Result());
-            Assert.Equal(await File.ReadAllBytesAsync(first), await File.ReadAllBytesAsync(second));
+            await ScanSnapshotStore.SaveAsync(first, Result(), token);
+            await ScanSnapshotStore.SaveAsync(second, Result(), token);
+            Assert.Equal(await File.ReadAllBytesAsync(first, token), await File.ReadAllBytesAsync(second, token));
         }
         finally { File.Delete(first); File.Delete(second); }
     }
@@ -46,13 +47,14 @@ public sealed class ScanSnapshotStoreTests
     [InlineData(50)]
     public async Task RejectsTruncatedFiles(int length)
     {
+        CancellationToken token = TestContext.Current.CancellationToken;
         string complete = TempPath(), truncated = TempPath();
         try
         {
-            await ScanSnapshotStore.SaveAsync(complete, Result());
-            byte[] bytes = await File.ReadAllBytesAsync(complete);
-            await File.WriteAllBytesAsync(truncated, bytes[..Math.Min(length, bytes.Length)]);
-            await Assert.ThrowsAsync<InvalidDataException>(() => ScanSnapshotStore.LoadAsync(truncated));
+            await ScanSnapshotStore.SaveAsync(complete, Result(), token);
+            byte[] bytes = await File.ReadAllBytesAsync(complete, token);
+            await File.WriteAllBytesAsync(truncated, bytes[..Math.Min(length, bytes.Length)], token);
+            await Assert.ThrowsAsync<InvalidDataException>(() => ScanSnapshotStore.LoadAsync(truncated, token));
         }
         finally { File.Delete(complete); File.Delete(truncated); }
     }
@@ -60,14 +62,15 @@ public sealed class ScanSnapshotStoreTests
     [Fact]
     public async Task RejectsUnknownVersion()
     {
+        CancellationToken token = TestContext.Current.CancellationToken;
         string path = TempPath();
         try
         {
-            await ScanSnapshotStore.SaveAsync(path, Result());
-            byte[] bytes = await File.ReadAllBytesAsync(path);
+            await ScanSnapshotStore.SaveAsync(path, Result(), token);
+            byte[] bytes = await File.ReadAllBytesAsync(path, token);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(8, 4), 99);
-            await File.WriteAllBytesAsync(path, bytes);
-            await Assert.ThrowsAsync<InvalidDataException>(() => ScanSnapshotStore.LoadAsync(path));
+            await File.WriteAllBytesAsync(path, bytes, token);
+            await Assert.ThrowsAsync<InvalidDataException>(() => ScanSnapshotStore.LoadAsync(path, token));
         }
         finally { File.Delete(path); }
     }
@@ -77,19 +80,20 @@ public sealed class ScanSnapshotStoreTests
     {
         ScanResultManaged result = Result();
         result.Nodes[0] = Node(0, 0, 1, None, 0, 0, 2);
-        await Assert.ThrowsAsync<InvalidDataException>(() => ScanSnapshotStore.SaveAsync(TempPath(), result));
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            ScanSnapshotStore.SaveAsync(TempPath(), result, TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task CancellationDoesNotOverwriteTargetOrLeaveTemporaryFile()
     {
         string path = TempPath();
-        await File.WriteAllTextAsync(path, "existing");
+        await File.WriteAllTextAsync(path, "existing", TestContext.Current.CancellationToken);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             ScanSnapshotStore.SaveAsync(path, Result(), cancellation.Token));
-        Assert.Equal("existing", await File.ReadAllTextAsync(path));
+        Assert.Equal("existing", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".*.tmp"));
         File.Delete(path);
     }
