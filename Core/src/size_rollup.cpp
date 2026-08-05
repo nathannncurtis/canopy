@@ -1,16 +1,8 @@
 #include "size_rollup.h"
+#include "cpu_features.h"
 #include "../include/smon_api.h"
 #include "../asm/simd_sum.h"
-#include <intrin.h>
-
-static bool DetectAVX2()
-{
-    int info[4] = {};
-    __cpuid(info, 7);
-    return (info[1] & (1 << 5)) != 0; // EBX bit 5 = AVX2
-}
-
-static const bool s_have_avx2 = DetectAVX2();
+static const bool s_have_avx2 = CpuHasAvx2();
 
 void RollupSizes(ScanResult* result)
 {

@@ -22,6 +22,21 @@
 #define SMON_SCANNER_MFT       1u
 #define SMON_SCANNER_DIRECTORY 2u
 
+#define SMON_ABI_VERSION 1u
+
+#define SMON_CAP_MFT_SCANNER       0x00000001ull
+#define SMON_CAP_DIRECTORY_SCANNER 0x00000002ull
+#define SMON_CAP_PAUSE_RESUME      0x00000004ull
+#define SMON_CAP_AVX2_ASM          0x00000008ull
+
+typedef struct SmonCapabilities {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint64_t flags;
+    uint32_t max_nodes;
+    uint32_t max_name_bytes;
+} SmonCapabilities;
+
 // 32 bytes, naturally aligned -- matches C# [StructLayout(LayoutKind.Sequential, Pack=8)]
 typedef struct ScanNode {
     uint64_t size;         // on-disk bytes; dirs include all descendants
@@ -60,6 +75,8 @@ SMON_API ScanHandle WINAPI Smon_BeginScan(
     SmonProgressCallback callback,
     void*                user_data);
 
+SMON_API DWORD WINAPI Smon_GetAbiVersion(void);
+SMON_API BOOL WINAPI Smon_GetCapabilities(SmonCapabilities* capabilities);
 SMON_API BOOL WINAPI Smon_Cancel(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_SetPaused(ScanHandle handle, BOOL paused);
 SMON_API BOOL WINAPI Smon_Wait(ScanHandle handle, DWORD timeout_ms);

@@ -5,6 +5,10 @@
 // Not thread-safe; callers must synchronize.
 class NodePool {
 public:
+    static constexpr uint32_t MaxNodes =
+        (128u * 1024u * 1024u) / static_cast<uint32_t>(sizeof(ScanNode));
+    static constexpr uint32_t MaxNameBytes = 128u * 1024u * 1024u;
+
     NodePool();
     ~NodePool();
     NodePool(const NodePool&) = delete;
@@ -31,7 +35,7 @@ private:
     static constexpr SIZE_T kReserveTotal   = 256ull * 1024 * 1024; // 256 MB total VA
     static constexpr SIZE_T kHalf           = kReserveTotal / 2;    // 128 MB each region
     static constexpr SIZE_T kCommitChunk    = 4 * 1024 * 1024;      // 4 MB at a time
-    static constexpr SIZE_T kNodeCapacity   = kHalf / sizeof(ScanNode);
+    static constexpr SIZE_T kNodeCapacity   = MaxNodes;
 
     BYTE*    m_base        = nullptr;   // start of reservation
     BYTE*    m_name_base   = nullptr;   // m_base + kHalf
