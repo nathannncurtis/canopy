@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
+using SizeMonitor.Helpers;
 using SizeMonitor.Interop;
 
 namespace SizeMonitor.Controls;
@@ -14,6 +15,8 @@ public partial class SearchResultsView : UserControl
     CancellationTokenSource? _searchCancellation;
     ScanResultManaged? _result;
     long _searchGeneration;
+    readonly ScanFilterPresetStore _presetStore = new(AppDataPaths.FilterPresets);
+    bool _applyingPreset;
 
     public event Action<uint>? NodeActivated;
 
@@ -21,6 +24,7 @@ public partial class SearchResultsView : UserControl
     {
         InitializeComponent();
         _debounce.Tick += OnDebounceTick;
+        Loaded += OnLoaded;
         Unloaded += (_, _) => CancelSearch();
     }
 
@@ -34,6 +38,18 @@ public partial class SearchResultsView : UserControl
     }
 
     void OnFilterChanged(object sender, RoutedEventArgs e) => ScheduleSearch(immediate: false);
+
+    async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            SetPresets(await _presetStore.LoadAsync());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            _status.Text = ex.Message;
+        }
+    }
 
     void OnApply(object sender, RoutedEventArgs e) => ScheduleSearch(immediate: true);
 
@@ -49,6 +65,68 @@ public partial class SearchResultsView : UserControl
         _results.ItemsSource = null;
         if (_result is not null)
             _status.Text = $"Ready to search {_result.Nodes.Length:N0} items. Enter a filter to begin.";
+    }
+
+    void OnPresetSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (_applyingPreset || _presetBox.SelectedItem is not ScanFilterPreset preset) return;
+        _applyingPreset = true;
+        try
+        {
+            ScanQuery query = preset.Query;
+            _presetNameBox.Text = preset.Name;
+            _regexCheck.IsChecked = !string.IsNullOrWhiteSpace(query.RegexPattern);
+            _queryBox.Text = query.RegexPattern ?? query.Text ?? string.Empty;
+            _extensionBox.Text = string.Join(", ", query.Extensions);
+            _minimumBox.Text = FormatOptionalSize(query.MinimumSize);
+            _maximumBox.Text = FormatOptionalSize(query.MaximumSize);
+            _kindBox.SelectedIndex = query.Kinds switch
+            {
+                ScanItemKinds.Files => 1,
+                ScanItemKinds.Directories => 2,
+                _ => 0,
+            };
+        }
+        finally
+        {
+            _applyingPreset = false;
+        }
+        ScheduleSearch(immediate: true);
+    }
+
+    async void OnSavePreset(object sender, RoutedEventArgs e)
+    {
+        string name = _presetNameBox.Text.Trim();
+        if (name.Length == 0 && _presetBox.SelectedItem is ScanFilterPreset selected)
+            name = selected.Name;
+        try
+        {
+            IReadOnlyList<ScanFilterPreset> presets = await _presetStore.UpsertAsync(
+                new ScanFilterPreset(name, BuildQuery()));
+            SetPresets(presets, name);
+            _status.Text = $"Saved preset '{name}'.";
+        }
+        catch (Exception ex) when (ex is ArgumentException or FormatException or IOException
+                                      or UnauthorizedAccessException or InvalidDataException)
+        {
+            _status.Text = ex.Message;
+        }
+    }
+
+    async void OnDeletePreset(object sender, RoutedEventArgs e)
+    {
+        if (_presetBox.SelectedItem is not ScanFilterPreset selected) return;
+        try
+        {
+            var result = await _presetStore.DeleteAsync(selected.Name);
+            SetPresets(result.Presets);
+            _presetNameBox.Text = string.Empty;
+            _status.Text = result.Removed ? $"Deleted preset '{selected.Name}'." : "Preset not found.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            _status.Text = ex.Message;
+        }
     }
 
     void ScheduleSearch(bool immediate)
@@ -139,6 +217,26 @@ public partial class SearchResultsView : UserControl
 
     static string? NullIfWhiteSpace(string value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    static string FormatOptionalSize(ulong? bytes) =>
+        bytes is null ? string.Empty : $"{bytes.Value} B";
+
+    void SetPresets(IReadOnlyList<ScanFilterPreset> presets, string? selectName = null)
+    {
+        _applyingPreset = true;
+        try
+        {
+            _presetBox.ItemsSource = presets;
+            _presetBox.SelectedItem = selectName is null
+                ? null
+                : presets.FirstOrDefault(item =>
+                    string.Equals(item.Name, selectName, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _applyingPreset = false;
+        }
+    }
 
     void OnResultDoubleClick(object sender, MouseButtonEventArgs e)
     {

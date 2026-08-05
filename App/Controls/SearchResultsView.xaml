@@ -37,6 +37,14 @@
             </ComboBox>
             <ui:Button Content="Apply" Margin="0,0,8,8" Click="OnApply" />
             <ui:Button Content="Clear" Margin="0,0,0,8" Click="OnClear" />
+            <Separator Width="1" Margin="12,0" />
+            <ComboBox x:Name="_presetBox" Width="150" Margin="0,0,8,8"
+                      DisplayMemberPath="Name" ToolTip="Saved filter presets"
+                      SelectionChanged="OnPresetSelected" />
+            <ui:TextBox x:Name="_presetNameBox" Width="130" Margin="0,0,8,8"
+                        PlaceholderText="Preset name" MaxLength="100" />
+            <ui:Button Content="Save preset" Margin="0,0,8,8" Click="OnSavePreset" />
+            <ui:Button Content="Delete" Margin="0,0,0,8" Click="OnDeletePreset" />
         </WrapPanel>
 
         <ui:TextBlock Grid.Row="1" x:Name="_status" Margin="0,0,0,8"
