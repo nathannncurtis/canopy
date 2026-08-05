@@ -27,6 +27,14 @@ public partial class ScanNavigationBar : UserControl
         Refresh();
     }
 
+    public bool NavigateTo(uint nodeIndex)
+    {
+        if (_navigation is null) return false;
+        bool changed = _navigation.Navigate(nodeIndex);
+        Refresh();
+        return changed;
+    }
+
     void OnBack(object sender, RoutedEventArgs e) => Move(navigation => navigation.GoBack());
 
     void OnForward(object sender, RoutedEventArgs e) => Move(navigation => navigation.GoForward());

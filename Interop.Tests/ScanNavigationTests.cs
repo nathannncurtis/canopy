@@ -86,6 +86,21 @@ public sealed class ScanNavigationTests
         Assert.Throws<InvalidDataException>(() => new ScanNavigationIndex(result));
     }
 
+    [Fact]
+    public void AmbiguousCombinedPathsRemainBrowsableButCannotBeTyped()
+    {
+        var result = new ScanResultManaged
+        {
+            Nodes = [Node(None), Node(0), Node(0)],
+            Names = ["Combined scan", "same", "same"],
+        };
+        var index = new ScanNavigationIndex(result);
+
+        Assert.Equal(@"Combined scan\same", index.GetPath(1));
+        Assert.Equal(@"Combined scan\same", index.GetPath(2));
+        Assert.False(index.TryFind(@"Combined scan\same", out _));
+    }
+
     static ScanResultManaged Result() => new()
     {
         Nodes = [Node(None), Node(0), Node(1), Node(2), Node(0)],

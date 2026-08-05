@@ -10,6 +10,7 @@ public sealed class ScanNavigationIndex
     readonly string[] _paths;
     readonly IReadOnlyList<ScanBreadcrumb>[] _breadcrumbs;
     readonly Dictionary<string, uint> _pathLookup = new(StringComparer.OrdinalIgnoreCase);
+    readonly HashSet<string> _ambiguousPaths = new(StringComparer.OrdinalIgnoreCase);
 
     public ScanNavigationIndex(ScanResultManaged result)
     {
@@ -82,8 +83,12 @@ public sealed class ScanNavigationIndex
         }
 
         _breadcrumbs[index] = crumbs.AsReadOnly();
-        if (!_pathLookup.TryAdd(_paths[index], nodeIndex))
-            throw new InvalidDataException($"More than one node resolves to path '{_paths[index]}'.");
+        if (!_ambiguousPaths.Contains(_paths[index]) &&
+            !_pathLookup.TryAdd(_paths[index], nodeIndex))
+        {
+            _pathLookup.Remove(_paths[index]);
+            _ambiguousPaths.Add(_paths[index]);
+        }
         states[index] = 2;
     }
 

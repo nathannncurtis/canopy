@@ -30,6 +30,7 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
             <ui:TextBox Grid.Column="0"
@@ -57,7 +58,15 @@
                        IsEnabled="False"
                        Click="OnCancel" />
 
-            <ui:InfoBadge Grid.Column="4"
+            <ui:Button Grid.Column="4"
+                       x:Name="_btnExport"
+                       Content="Export"
+                       Margin="8,0,0,0"
+                       IsEnabled="False"
+                       ToolTip="Export completed results as CSV or JSON"
+                       Click="OnExport" />
+
+            <ui:InfoBadge Grid.Column="5"
                           x:Name="_elevBadge"
                           Severity="Caution"
                           ToolTip="Running without elevation (MFT scan unavailable)"
@@ -74,8 +83,6 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -116,26 +123,34 @@
         <TabControl Grid.Row="3" x:Name="_contentTabs" BorderThickness="0">
           <TabItem Header="Explore">
            <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2*" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="3*" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0"
+            <controls:ScanNavigationBar Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3"
+                                        x:Name="_navigationBar" Margin="12,8"
+                                        NodeActivated="OnNavigationNodeActivated" />
+
+            <Border Grid.Row="1" Grid.Column="0"
                     x:Name="_treeHost"
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
 
             <!-- column separator -->
-            <Border Grid.Column="1"
+            <Border Grid.Row="1" Grid.Column="1"
                     Width="1"
                     Background="{DynamicResource CardStrokeColorDefaultBrush}" />
 
-            <Border Grid.Column="2"
+            <Border Grid.Row="1" Grid.Column="2"
                     x:Name="_treemapHost" />
 
             <!-- empty state overlay (spans all columns) -->
-            <StackPanel Grid.Column="0" Grid.ColumnSpan="3"
+            <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
                         x:Name="_emptyState"
                         VerticalAlignment="Center"
                         HorizontalAlignment="Center"
@@ -152,6 +167,10 @@
             <controls:SearchResultsView x:Name="_searchView"
                                         NodeActivated="OnSearchNodeActivated" />
           </TabItem>
+          <TabItem Header="Empty Items">
+            <controls:EmptyItemsView x:Name="_emptyItemsView"
+                                     NodeActivated="OnEmptyItemActivated" />
+          </TabItem>
         </TabControl>
 
         <!-- Row 3: status bar -->
@@ -161,6 +180,8 @@
                 BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
             <Grid Margin="12,5">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
