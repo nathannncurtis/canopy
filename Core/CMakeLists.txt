@@ -32,6 +32,7 @@ add_library(Canopy.Core SHARED
     src/tree_compactor.cpp
     src/size_rollup.cpp
     src/cpu_features.cpp
+    src/scan_options.cpp
     asm/simd_sum.cpp
     asm/simd_sum.asm
     "${SIMD_OBJ}"
@@ -95,3 +96,11 @@ if(MSVC)
     target_compile_options(simd_sum_test PRIVATE /W4 /WX /utf-8)
 endif()
 add_test(NAME avx2_asm_parity COMMAND simd_sum_test)
+
+add_executable(scan_options_test test/scan_options_test.cpp src/scan_options.cpp)
+target_include_directories(scan_options_test PRIVATE src)
+target_compile_definitions(scan_options_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+if(MSVC)
+    target_compile_options(scan_options_test PRIVATE /W4 /WX /utf-8)
+endif()
+add_test(NAME scan_options_contract COMMAND scan_options_test)
