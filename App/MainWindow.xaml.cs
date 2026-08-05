@@ -13,6 +13,7 @@ public partial class MainWindow : FluentWindow
     MultiScanSession?        _multiSession;
     CancellationTokenSource? _cts;
     ScanResultManaged?       _result;
+    ScanResultMetrics?       _metrics;
     SizeTreeView?            _treeView;
     Treemap?                 _treemap;
     Stopwatch?               _scanClock;
@@ -73,6 +74,8 @@ public partial class MainWindow : FluentWindow
         _statScannerSep.Visibility = Visibility.Collapsed;
         _statScanner.Text       = "";
         _statVolume.Text        = "";
+        _statSelection.Text     = "";
+        _metrics                = null;
         _statCurrent.Text       = "Starting scan...";
         _scanProgress.Value     = 0;
         _scanProgress.IsIndeterminate = true;
@@ -104,7 +107,7 @@ public partial class MainWindow : FluentWindow
             _multiSession = new MultiScanSession(Math.Min(paths.Length, Math.Max(1, Environment.ProcessorCount / 2)));
             IReadOnlyList<TargetScanResult> targetResults =
                 await _multiSession.ScanAsync(paths, progress, _cts.Token, scanOptions);
-            _result = ScanResultCombiner.CombineTargets(targetResults);
+        _result = ScanResultCombiner.CombineTargets(targetResults);
             OnScanComplete(_result, targetResults);
         }
         catch (OperationCanceledException)
@@ -168,6 +171,7 @@ public partial class MainWindow : FluentWindow
 
     void OnScanComplete(ScanResultManaged result, IReadOnlyList<TargetScanResult> targets)
     {
+        _metrics = ScanResultMetrics.Calculate(result);
         _statSize.Text          = Helpers.SizeFormatter.FormatBytes(result.TotalBytes);
         _statFiles.Text         = $"{result.FileCount:N0} files, {result.DirCount:N0} dirs";
         _statTime.Text          = $"{result.ElapsedSec:F1}s";
@@ -184,6 +188,7 @@ public partial class MainWindow : FluentWindow
         _treeView?.Populate(result);
         _treemap?.SetRoot(result, 0);
         _searchView.SetResult(result);
+        if (result.Nodes.Length > 0) ShowNodeMetrics(0);
     }
 
     void UpdateVolumeStatus(IReadOnlyList<TargetScanResult> targets)
@@ -296,6 +301,7 @@ public partial class MainWindow : FluentWindow
     void OnTreeNodeSelected(uint nodeIndex)
     {
         if (_result == null) return;
+        ShowNodeMetrics(nodeIndex);
         // Only navigate the treemap into directory nodes; selecting a file node
         // would produce an empty treemap (files have no children).
         if (((_result.Nodes[nodeIndex].Flags & ScanNodeFlags.Directory) != 0))
@@ -305,6 +311,7 @@ public partial class MainWindow : FluentWindow
     void OnSearchNodeActivated(uint nodeIndex)
     {
         if (_result is null || nodeIndex >= _result.Nodes.Length) return;
+        ShowNodeMetrics(nodeIndex);
         ScanNode node = _result.Nodes[nodeIndex];
         uint navigationRoot = (node.Flags & ScanNodeFlags.Directory) != 0
             ? nodeIndex
@@ -314,6 +321,22 @@ public partial class MainWindow : FluentWindow
             _treemap?.SetRoot(_result, navigationRoot);
             _contentTabs.SelectedIndex = 0;
         }
+    }
+
+    void ShowNodeMetrics(uint nodeIndex)
+    {
+        if (_result is null || _metrics is null || nodeIndex >= _result.Nodes.Length)
+            return;
+        ScanNodeMetrics metrics = _metrics[nodeIndex];
+        string average = metrics.FileCount == 0
+            ? "no files"
+            : $"{SizeFormatter.FormatBytes(metrics.AverageFileSize)} average";
+        _statSelection.Text =
+            $"{_result.GetName(nodeIndex)} · {metrics.FileCount:N0} files, " +
+            $"{metrics.DirectoryCount:N0} dirs · {average} · " +
+            $"depth {metrics.DescendantDepth:N0} · " +
+            $"{metrics.PercentageOfParent:F1}% of parent · " +
+            $"{metrics.PercentageOfScan:F1}% of scan";
     }
 
     void OnTreemapPathChanged(IReadOnlyList<string> path)
