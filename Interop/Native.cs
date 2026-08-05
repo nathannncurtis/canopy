@@ -25,7 +25,19 @@ internal static unsafe class Native
 
     [DllImport(Dll, ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool Smon_SetPaused(
+        IntPtr handle,
+        [MarshalAs(UnmanagedType.Bool)] bool paused);
+
+    [DllImport(Dll, ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool Smon_Wait(IntPtr handle, uint timeoutMs);
+
+    [DllImport(Dll, ExactSpelling = true)]
+    internal static extern uint Smon_GetError(IntPtr handle);
+
+    [DllImport(Dll, ExactSpelling = true)]
+    internal static extern uint Smon_GetScannerKind(IntPtr handle);
 
     [DllImport(Dll, ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
