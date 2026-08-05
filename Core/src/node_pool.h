@@ -7,6 +7,8 @@ class NodePool {
 public:
     NodePool();
     ~NodePool();
+    NodePool(const NodePool&) = delete;
+    NodePool& operator=(const NodePool&) = delete;
 
     // Returns index of a new zero-initialized ScanNode; grows committed pages as needed.
     uint32_t AllocNode();
@@ -20,6 +22,7 @@ public:
     void Finalize(ScanResult* out);
 
     bool Full() const;
+    void Swap(NodePool& other) noexcept;
 
 private:
     bool GrowNodes();

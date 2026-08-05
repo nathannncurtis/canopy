@@ -34,10 +34,24 @@ int wmain(int argc, wchar_t* argv[])
     }
 
     ScanResult r{};
-    if (Smon_GetResult(h, &r))
-        wprintf(L"nodes=%u  total=%llu bytes\n", r.node_count, r.total_bytes);
-    else
-        wprintf(L"Smon_GetResult failed\n");
+    if (!Smon_GetResult(h, &r)) {
+        wprintf(L"Smon_GetResult failed: %lu\n", Smon_GetError(h));
+        Smon_FreeResult(h);
+        return 1;
+    }
+    wprintf(L"scanner=%lu  nodes=%u  total=%llu bytes\n",
+            Smon_GetScannerKind(h), r.node_count, r.total_bytes);
+    if (!Check(r.node_count > 0, L"scan has a deterministic root") ||
+        !Check(r.nodes[0].parent == UINT32_MAX, L"node zero is the root")) {
+        Smon_FreeResult(h);
+        return 1;
+    }
+    for (uint32_t i = 1; i < r.node_count; ++i) {
+        if (!Check(r.nodes[i].parent < i, L"parents precede descendants")) {
+            Smon_FreeResult(h);
+            return 1;
+        }
+    }
 
     Smon_FreeResult(h);
     return 0;

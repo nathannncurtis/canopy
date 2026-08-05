@@ -1,5 +1,6 @@
 #include "mft_scanner.h"
 #include "scan_context.h"
+#include "tree_compactor.h"
 #include <unordered_map>
 #include <vector>
 #include <cstring>
@@ -65,6 +66,30 @@ DWORD WINAPI MftScanThread(LPVOID param)
     LARGE_INTEGER freq{}, t0{}, t1{};
     QueryPerformanceFrequency(&freq);
     QueryPerformanceCounter(&t0);
+
+    HANDLE target = CreateFileW(scan_path,
+                                FILE_READ_ATTRIBUTES,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                nullptr,
+                                OPEN_EXISTING,
+                                FILE_FLAG_BACKUP_SEMANTICS,
+                                nullptr);
+    if (target == INVALID_HANDLE_VALUE) {
+        ctx->error = GetLastError();
+        delete[] scan_path;
+        return 1;
+    }
+    BY_HANDLE_FILE_INFORMATION target_info{};
+    if (!GetFileInformationByHandle(target, &target_info)) {
+        ctx->error = GetLastError();
+        CloseHandle(target);
+        delete[] scan_path;
+        return 1;
+    }
+    CloseHandle(target);
+    DWORDLONG target_frn =
+        (static_cast<DWORDLONG>(target_info.nFileIndexHigh) << 32) |
+        target_info.nFileIndexLow;
 
     // Build volume path: "\\.\C:" from "C:\..."
     wchar_t vol_path[8] = {};
@@ -223,7 +248,7 @@ DWORD WINAPI MftScanThread(LPVOID param)
     CloseHandle(vol);
 
     // Second pass: resolve parent FRNs and build child/sibling chains.
-    uint32_t node_count = static_cast<uint32_t>(frn_map.size());
+    uint32_t node_count = static_cast<uint32_t>(frn_by_idx.size());
     // Iterate all allocated nodes by index range (pool tracks count via Finalize later).
     // node_count equals record_count capped by pool.
     for (uint32_t i = 0; i < node_count; ++i) {
@@ -251,6 +276,23 @@ DWORD WINAPI MftScanThread(LPVOID param)
         ScanNode* parent_node = ctx->pool.NodeAt(parent_idx);
         node->next_sibling        = parent_node->first_child;
         parent_node->first_child  = i;
+    }
+
+    // MFT enumeration covers the full volume. Compact to the exact requested
+    // file/directory before querying sizes so node 0 is deterministic and
+    // unrelated files are neither opened nor returned.
+    if (!ctx->cancelled.load()) {
+        auto target_it = frn_map.find(target_frn);
+        if (target_it == frn_map.end()) {
+            ctx->error = ERROR_PATH_NOT_FOUND;
+            return 1;
+        }
+        DWORD compact_error = CompactSubtree(ctx->pool, target_it->second, frn_by_idx);
+        if (compact_error != ERROR_SUCCESS) {
+            ctx->error = compact_error;
+            return 1;
+        }
+        node_count = static_cast<uint32_t>(frn_by_idx.size());
     }
 
     // Third pass: query on-disk allocation size for each file (non-directory) node.
