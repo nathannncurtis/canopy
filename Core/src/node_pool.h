@@ -22,12 +22,13 @@ public:
     bool Full() const;
 
 private:
-    void GrowNodes();
-    void GrowNames(uint32_t need_bytes);
+    bool GrowNodes();
+    bool GrowNames(uint32_t need_bytes);
 
     static constexpr SIZE_T kReserveTotal   = 256ull * 1024 * 1024; // 256 MB total VA
     static constexpr SIZE_T kHalf           = kReserveTotal / 2;    // 128 MB each region
     static constexpr SIZE_T kCommitChunk    = 4 * 1024 * 1024;      // 4 MB at a time
+    static constexpr SIZE_T kNodeCapacity   = kHalf / sizeof(ScanNode);
 
     BYTE*    m_base        = nullptr;   // start of reservation
     BYTE*    m_name_base   = nullptr;   // m_base + kHalf

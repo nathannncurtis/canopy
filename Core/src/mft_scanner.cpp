@@ -168,6 +168,11 @@ DWORD WINAPI MftScanThread(LPVOID param)
             }
 
             uint32_t idx = ctx->pool.AllocNode();
+            if (idx == UINT32_MAX) {
+                ctx->error = ERROR_NOT_ENOUGH_MEMORY;
+                CloseHandle(vol);
+                return 1;
+            }
             ScanNode* node = ctx->pool.NodeAt(idx);
 
             // Name
@@ -175,6 +180,11 @@ DWORD WINAPI MftScanThread(LPVOID param)
             WCHAR* name_ptr = reinterpret_cast<WCHAR*>(
                 reinterpret_cast<BYTE*>(rec) + rec->FileNameOffset);
             node->name_offset = ctx->pool.AppendName(name_ptr, name_len_chars);
+            if (node->name_offset == UINT32_MAX) {
+                ctx->error = ERROR_NOT_ENOUGH_MEMORY;
+                CloseHandle(vol);
+                return 1;
+            }
             node->name_len    = name_len_chars;
 
             // Flags

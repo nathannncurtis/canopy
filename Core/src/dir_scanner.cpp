@@ -99,6 +99,11 @@ DWORD WINAPI DirScanThread(LPVOID param)
 
     // Allocate root node for the scan root directory.
     uint32_t root_idx = ctx->pool.AllocNode();
+    if (root_idx == UINT32_MAX) {
+        ctx->error = ERROR_NOT_ENOUGH_MEMORY;
+        delete[] scan_path;
+        return 1;
+    }
     {
         ScanNode* root = ctx->pool.NodeAt(root_idx);
         // Name is the last path component or the path itself.
@@ -109,6 +114,11 @@ DWORD WINAPI DirScanThread(LPVOID param)
         }
         uint32_t name_len = static_cast<uint32_t>(wcslen(name_start));
         root->name_offset  = ctx->pool.AppendName(name_start, name_len);
+        if (root->name_offset == UINT32_MAX) {
+            ctx->error = ERROR_NOT_ENOUGH_MEMORY;
+            delete[] scan_path;
+            return 1;
+        }
         root->name_len     = name_len;
         root->flags        = SMON_FLAG_DIRECTORY;
         root->parent       = UINT32_MAX;
@@ -289,8 +299,22 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                     EnterCriticalSection(&state->cs);
                     if (!ctx->pool.Full()) {
                         idx = ctx->pool.AllocNode();
+                        if (idx == UINT32_MAX) {
+                            ctx->error = ERROR_NOT_ENOUGH_MEMORY;
+                            LeaveCriticalSection(&state->cs);
+                            CloseHandle(dir);
+                            InterlockedDecrement(&state->in_flight);
+                            return;
+                        }
                         ScanNode* node = ctx->pool.NodeAt(idx);
                         node->name_offset  = ctx->pool.AppendName(fdi->FileName, name_chars);
+                        if (node->name_offset == UINT32_MAX) {
+                            ctx->error = ERROR_NOT_ENOUGH_MEMORY;
+                            LeaveCriticalSection(&state->cs);
+                            CloseHandle(dir);
+                            InterlockedDecrement(&state->in_flight);
+                            return;
+                        }
                         node->name_len     = name_chars;
                         node->flags        = 0;
                         if (is_dir)    node->flags |= SMON_FLAG_DIRECTORY;
