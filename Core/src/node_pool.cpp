@@ -12,8 +12,14 @@ NodePool::NodePool()
     m_name_base = m_base + kHalf;
 
     // Commit an initial chunk in each region so the first alloc never stalls.
-    VirtualAlloc(m_base,      kCommitChunk, MEM_COMMIT, PAGE_READWRITE);
-    VirtualAlloc(m_name_base, kCommitChunk, MEM_COMMIT, PAGE_READWRITE);
+    void* nodes = VirtualAlloc(m_base, kCommitChunk, MEM_COMMIT, PAGE_READWRITE);
+    void* names = VirtualAlloc(m_name_base, kCommitChunk, MEM_COMMIT, PAGE_READWRITE);
+    if (!nodes || !names) {
+        VirtualFree(m_base, 0, MEM_RELEASE);
+        m_base = nullptr;
+        m_name_base = nullptr;
+        return;
+    }
     m_node_committed = kCommitChunk;
     m_name_committed = kCommitChunk;
 }
@@ -26,12 +32,10 @@ NodePool::~NodePool()
 
 uint32_t NodePool::AllocNode()
 {
-    if (!m_base)
-        return UINT32_MAX; // reservation failed at construction
+    if (Full()) return UINT32_MAX;
 
     SIZE_T needed = (static_cast<SIZE_T>(m_node_count) + 1) * sizeof(ScanNode);
-    if (needed > m_node_committed)
-        GrowNodes();
+    if (needed > m_node_committed && !GrowNodes()) return UINT32_MAX;
 
     uint32_t idx = m_node_count++;
     ScanNode* n  = NodeAt(idx);
@@ -41,15 +45,16 @@ uint32_t NodePool::AllocNode()
 
 uint32_t NodePool::AppendName(const wchar_t* name, uint32_t len)
 {
-    if (!m_base)
-        return 0; // reservation failed at construction
+    if (!m_base || (len > 0 && !name) ||
+        len > UINT32_MAX / static_cast<uint32_t>(sizeof(wchar_t)))
+        return UINT32_MAX;
 
     uint32_t byte_len = len * static_cast<uint32_t>(sizeof(wchar_t));
     uint32_t offset   = m_name_used;
 
     SIZE_T needed = static_cast<SIZE_T>(m_name_used) + byte_len;
-    if (needed > m_name_committed)
-        GrowNames(byte_len);
+    if (needed > kHalf || (needed > m_name_committed && !GrowNames(byte_len)))
+        return UINT32_MAX;
 
     memcpy(m_name_base + m_name_used, name, byte_len);
     m_name_used += byte_len;
@@ -70,34 +75,31 @@ void NodePool::Finalize(ScanResult* out)
 
 bool NodePool::Full() const
 {
-    // Also full if reservation failed at construction.
-    if (!m_base)
-        return true;
-    // Safety cap: refuse before we hit UINT32_MAX index space.
-    return m_node_count >= (UINT32_MAX / 2);
+    return !m_base || static_cast<SIZE_T>(m_node_count) >= kNodeCapacity;
 }
 
-void NodePool::GrowNodes()
+bool NodePool::GrowNodes()
 {
     BYTE* commit_at = m_base + m_node_committed;
     SIZE_T remaining = kHalf - m_node_committed;
     SIZE_T chunk = remaining < kCommitChunk ? remaining : kCommitChunk;
-    if (chunk == 0)
-        return; // reservation exhausted
-    VirtualAlloc(commit_at, chunk, MEM_COMMIT, PAGE_READWRITE);
+    if (chunk == 0) return false;
+    if (!VirtualAlloc(commit_at, chunk, MEM_COMMIT, PAGE_READWRITE)) return false;
     m_node_committed += chunk;
+    return true;
 }
 
-void NodePool::GrowNames(uint32_t need_bytes)
+bool NodePool::GrowNames(uint32_t need_bytes)
 {
     SIZE_T target = static_cast<SIZE_T>(m_name_used) + need_bytes;
+    if (target > kHalf) return false;
     while (m_name_committed < target) {
         BYTE*  commit_at  = m_name_base + m_name_committed;
         SIZE_T remaining  = kHalf - m_name_committed;
         SIZE_T chunk      = remaining < kCommitChunk ? remaining : kCommitChunk;
-        if (chunk == 0)
-            break; // reservation exhausted
-        VirtualAlloc(commit_at, chunk, MEM_COMMIT, PAGE_READWRITE);
+        if (chunk == 0) return false;
+        if (!VirtualAlloc(commit_at, chunk, MEM_COMMIT, PAGE_READWRITE)) return false;
         m_name_committed += chunk;
     }
+    return true;
 }
