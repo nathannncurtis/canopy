@@ -50,6 +50,17 @@ public partial class MainWindow : FluentWindow
         string[] paths = ParsePaths(_pathBox.Text);
         if (paths.Length == 0) return;
 
+        ScanOptions? scanOptions;
+        try
+        {
+            scanOptions = BuildScanOptions();
+        }
+        catch (Exception ex) when (ex is FormatException or ArgumentException)
+        {
+            _statSize.Text = $"Invalid scan options: {ex.Message}";
+            return;
+        }
+
         _btnScan.IsEnabled      = false;
         _btnPause.IsEnabled     = true;
         _btnCancel.IsEnabled    = true;
@@ -91,7 +102,7 @@ public partial class MainWindow : FluentWindow
         {
             _multiSession = new MultiScanSession(Math.Min(paths.Length, Math.Max(1, Environment.ProcessorCount / 2)));
             IReadOnlyList<TargetScanResult> targetResults =
-                await _multiSession.ScanAsync(paths, progress, _cts.Token);
+                await _multiSession.ScanAsync(paths, progress, _cts.Token, scanOptions);
             _result = ScanResultCombiner.CombineTargets(targetResults);
             OnScanComplete(_result, targetResults);
         }
@@ -179,6 +190,57 @@ public partial class MainWindow : FluentWindow
         .Where(path => path.Length > 0)
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToArray();
+
+    ScanOptions? BuildScanOptions()
+    {
+        string[] patterns = ParseOptionList(_excludePatternsBox.Text);
+        string[] extensions = ParseOptionList(_excludeExtensionsBox.Text);
+        ulong? minimumSize = ParseOptionalSize(_minimumSizeBox.Text, "minimum size");
+        ulong? maximumSize = ParseOptionalSize(_maximumSizeBox.Text, "maximum size");
+        uint? maximumDepth = ParseOptionalUInt(_maximumDepthBox.Text, "maximum depth");
+        uint? workerThreads = ParseOptionalUInt(_workerThreadsBox.Text, "worker threads");
+        bool hasOptions = patterns.Length > 0 || extensions.Length > 0 ||
+            minimumSize.HasValue || maximumSize.HasValue || maximumDepth.HasValue ||
+            workerThreads.HasValue || _excludeHidden.IsChecked == true ||
+            _excludeSystem.IsChecked == true || _excludeTemporary.IsChecked == true ||
+            _excludeReparse.IsChecked == true;
+        if (!hasOptions) return null;
+
+        return new ScanOptions
+        {
+            ExcludedPatterns = patterns,
+            ExcludedExtensions = extensions,
+            MinimumFileSize = minimumSize ?? 0,
+            MaximumFileSize = maximumSize,
+            MaximumDepth = maximumDepth,
+            WorkerThreads = workerThreads,
+            IncludeHidden = _excludeHidden.IsChecked != true,
+            IncludeSystem = _excludeSystem.IsChecked != true,
+            IncludeTemporary = _excludeTemporary.IsChecked != true,
+            IncludeReparsePoints = _excludeReparse.IsChecked != true,
+            ForceDirectoryScanner = true,
+        };
+    }
+
+    static string[] ParseOptionList(string text) => text
+        .Split([';', ',', '\r', '\n'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    static ulong? ParseOptionalSize(string text, string name)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        if (ByteSizeParser.TryParse(text, out ulong bytes)) return bytes;
+        throw new FormatException($"'{text}' is not a valid {name}.");
+    }
+
+    static uint? ParseOptionalUInt(string text, string name)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        if (uint.TryParse(text, out uint value) && value > 0) return value;
+        throw new FormatException($"'{text}' is not a valid {name}.");
+    }
 
     void OnTreeNodeSelected(uint nodeIndex)
     {

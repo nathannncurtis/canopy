@@ -14,6 +14,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -64,8 +65,53 @@
                           VerticalAlignment="Center" />
         </Grid>
 
+        <Expander Grid.Row="2" Header="Scan options" Margin="12,0,12,8">
+            <Grid Margin="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Excluded paths/globs" VerticalAlignment="Center" />
+                <TextBox Grid.Row="0" Grid.Column="1" x:Name="_excludePatternsBox"
+                         Margin="8,2,16,2" ToolTip="Semicolon-separated names or relative-path globs" />
+                <TextBlock Grid.Row="0" Grid.Column="2" Text="Excluded extensions" VerticalAlignment="Center" />
+                <TextBox Grid.Row="0" Grid.Column="3" x:Name="_excludeExtensionsBox"
+                         Margin="8,2,0,2" ToolTip="Semicolon-separated extensions, such as .tmp;.log" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Minimum size" VerticalAlignment="Center" />
+                <TextBox Grid.Row="1" Grid.Column="1" x:Name="_minimumSizeBox"
+                         Margin="8,2,16,2" ToolTip="Examples: 10 MB or 512 KiB" />
+                <TextBlock Grid.Row="1" Grid.Column="2" Text="Maximum size" VerticalAlignment="Center" />
+                <TextBox Grid.Row="1" Grid.Column="3" x:Name="_maximumSizeBox"
+                         Margin="8,2,0,2" ToolTip="Leave empty for no limit" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Maximum depth" VerticalAlignment="Center" />
+                <TextBox Grid.Row="2" Grid.Column="1" x:Name="_maximumDepthBox"
+                         Margin="8,2,16,2" ToolTip="Leave empty for unlimited depth" />
+                <TextBlock Grid.Row="2" Grid.Column="2" Text="Worker threads" VerticalAlignment="Center" />
+                <TextBox Grid.Row="2" Grid.Column="3" x:Name="_workerThreadsBox"
+                         Margin="8,2,0,2" ToolTip="1–1024; leave empty for automatic" />
+
+                <WrapPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,6,0,0">
+                    <CheckBox x:Name="_excludeHidden" Content="Exclude hidden" Margin="0,0,16,0" />
+                    <CheckBox x:Name="_excludeSystem" Content="Exclude system" Margin="0,0,16,0" />
+                    <CheckBox x:Name="_excludeTemporary" Content="Exclude temporary" Margin="0,0,16,0" />
+                    <CheckBox x:Name="_excludeReparse" Content="Exclude reparse points" />
+                </WrapPanel>
+            </Grid>
+        </Expander>
+
         <!-- Row 2: exploration and search -->
-        <TabControl Grid.Row="2" x:Name="_contentTabs" BorderThickness="0">
+        <TabControl Grid.Row="3" x:Name="_contentTabs" BorderThickness="0">
           <TabItem Header="Explore">
            <Grid>
             <Grid.ColumnDefinitions>
@@ -107,7 +153,7 @@
         </TabControl>
 
         <!-- Row 3: status bar -->
-        <Border Grid.Row="3"
+        <Border Grid.Row="4"
                 Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                 BorderThickness="0,1,0,0"
                 BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
