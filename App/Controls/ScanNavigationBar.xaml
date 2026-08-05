@@ -1,0 +1,46 @@
+<UserControl x:Class="SizeMonitor.Controls.ScanNavigationBar"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+
+        <ui:Button x:Name="_backButton" Grid.Column="0" Width="36" Height="32"
+                   Margin="0,0,4,0" Content="←" FontSize="16"
+                   ToolTip="Back (Alt+Left)" automation:AutomationProperties.Name="Back"
+                   Click="OnBack" />
+        <ui:Button x:Name="_forwardButton" Grid.Column="1" Width="36" Height="32"
+                   Margin="0,0,8,0" Content="→" FontSize="16"
+                   ToolTip="Forward (Alt+Right)" automation:AutomationProperties.Name="Forward"
+                   Click="OnForward" />
+        <ui:TextBox x:Name="_pathBox" Grid.Column="2" Height="32"
+                    VerticalContentAlignment="Center" PlaceholderText="Enter a path"
+                    ToolTip="Type a scanned path and press Enter"
+                    automation:AutomationProperties.Name="Scan path"
+                    KeyDown="OnPathKeyDown" />
+        <ui:Button x:Name="_goButton" Grid.Column="3" MinWidth="48" Height="32"
+                   Margin="8,0,0,0" Content="Go" ToolTip="Go to path (Enter)"
+                   automation:AutomationProperties.Name="Go to path" Click="OnGo" />
+
+        <DockPanel Grid.Row="1" Grid.ColumnSpan="4" Margin="0,6,0,0">
+            <TextBlock x:Name="_status" DockPanel.Dock="Right" Margin="12,0,0,0"
+                       Foreground="IndianRed" VerticalAlignment="Center"
+                       AutomationProperties.LiveSetting="Polite" />
+            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="_breadcrumbs" Orientation="Horizontal"
+                            VerticalAlignment="Center" />
+            </ScrollViewer>
+        </DockPanel>
+    </Grid>
+</UserControl>
