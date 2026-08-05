@@ -1,0 +1,47 @@
+<UserControl x:Class="SizeMonitor.Controls.EmptyItemsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="Empty files and directories">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+            <Label Content="Show:" Target="{Binding ElementName=_kindFilter}"
+                   VerticalAlignment="Center" Padding="0,0,8,0" />
+            <ComboBox x:Name="_kindFilter" Width="150" SelectedIndex="0"
+                      SelectionChanged="OnFilterChanged"
+                      ToolTip="Filter empty results by item type"
+                      AutomationProperties.Name="Empty item type filter">
+                <ComboBoxItem Content="All empty items" />
+                <ComboBoxItem Content="Empty files" />
+                <ComboBoxItem Content="Empty directories" />
+            </ComboBox>
+        </StackPanel>
+
+        <TextBlock Grid.Row="1" x:Name="_status" Margin="0,0,0,8"
+                   Text="Run a scan to find empty items."
+                   AutomationProperties.LiveSetting="Polite"
+                   AutomationProperties.Name="Empty item search status" />
+
+        <DataGrid Grid.Row="2" x:Name="_items" AutoGenerateColumns="False"
+                  IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow"
+                  CanUserAddRows="False" CanUserDeleteRows="False"
+                  EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                  VirtualizingPanel.IsVirtualizing="True"
+                  VirtualizingPanel.VirtualizationMode="Recycling"
+                  ScrollViewer.CanContentScroll="True"
+                  MouseDoubleClick="OnItemDoubleClick"
+                  ToolTip="Double-click an item to activate it in the scan results"
+                  AutomationProperties.Name="Empty scan items">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Index" Binding="{Binding NodeIndex}" Width="85" />
+                <DataGridTextColumn Header="Kind" Binding="{Binding Kind}" Width="120" />
+                <DataGridTextColumn Header="Path" Binding="{Binding RelativePath}" Width="*" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>
