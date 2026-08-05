@@ -54,6 +54,7 @@ public partial class MainWindow : FluentWindow
         _btnPause.IsEnabled     = true;
         _btnCancel.IsEnabled    = true;
         _emptyState.Visibility  = Visibility.Collapsed;
+        _searchView.SetResult(null);
         _statSize.Text          = "Scanning...";
         _statFiles.Text         = "";
         _statTime.Text          = "";
@@ -169,6 +170,7 @@ public partial class MainWindow : FluentWindow
 
         _treeView?.Populate(result);
         _treemap?.SetRoot(result, 0);
+        _searchView.SetResult(result);
     }
 
     static string[] ParsePaths(string text) => text
@@ -185,6 +187,20 @@ public partial class MainWindow : FluentWindow
         // would produce an empty treemap (files have no children).
         if (((_result.Nodes[nodeIndex].Flags & ScanNodeFlags.Directory) != 0))
             _treemap?.SetRoot(_result, nodeIndex);
+    }
+
+    void OnSearchNodeActivated(uint nodeIndex)
+    {
+        if (_result is null || nodeIndex >= _result.Nodes.Length) return;
+        ScanNode node = _result.Nodes[nodeIndex];
+        uint navigationRoot = (node.Flags & ScanNodeFlags.Directory) != 0
+            ? nodeIndex
+            : node.Parent;
+        if (navigationRoot != uint.MaxValue)
+        {
+            _treemap?.SetRoot(_result, navigationRoot);
+            _contentTabs.SelectedIndex = 0;
+        }
     }
 
     void OnTreemapPathChanged(IReadOnlyList<string> path)

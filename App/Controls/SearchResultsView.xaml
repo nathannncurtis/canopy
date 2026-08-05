@@ -1,0 +1,63 @@
+<UserControl x:Class="SizeMonitor.Controls.SearchResultsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <WrapPanel Grid.Row="0" VerticalAlignment="Center">
+            <ui:TextBox x:Name="_queryBox" Width="220" Margin="0,0,8,8"
+                        PlaceholderText="Name or regular expression"
+                        ToolTip="Search file and directory names"
+                        TextChanged="OnFilterChanged" />
+            <CheckBox x:Name="_regexCheck" Content="Regex" Margin="0,0,12,8"
+                      VerticalAlignment="Center" Checked="OnFilterChanged"
+                      Unchecked="OnFilterChanged" />
+            <ui:TextBox x:Name="_extensionBox" Width="130" Margin="0,0,8,8"
+                        PlaceholderText="Extensions"
+                        ToolTip="Comma-separated extensions, such as zip,iso"
+                        TextChanged="OnFilterChanged" />
+            <ui:TextBox x:Name="_minimumBox" Width="105" Margin="0,0,8,8"
+                        PlaceholderText="Min size"
+                        ToolTip="Examples: 500 MB or 1.5 GiB"
+                        TextChanged="OnFilterChanged" />
+            <ui:TextBox x:Name="_maximumBox" Width="105" Margin="0,0,8,8"
+                        PlaceholderText="Max size"
+                        ToolTip="Examples: 10 GB or 2 TiB"
+                        TextChanged="OnFilterChanged" />
+            <ComboBox x:Name="_kindBox" Width="110" Margin="0,0,8,8"
+                      SelectedIndex="0" SelectionChanged="OnFilterChanged">
+                <ComboBoxItem Content="All items" />
+                <ComboBoxItem Content="Files" />
+                <ComboBoxItem Content="Directories" />
+            </ComboBox>
+            <ui:Button Content="Apply" Margin="0,0,8,8" Click="OnApply" />
+            <ui:Button Content="Clear" Margin="0,0,0,8" Click="OnClear" />
+        </WrapPanel>
+
+        <ui:TextBlock Grid.Row="1" x:Name="_status" Margin="0,0,0,8"
+                      Appearance="Secondary" Text="Run a scan to search its results." />
+
+        <DataGrid Grid.Row="2" x:Name="_results" AutoGenerateColumns="False"
+                  IsReadOnly="True" SelectionMode="Single"
+                  CanUserAddRows="False" CanUserDeleteRows="False"
+                  EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                  MouseDoubleClick="OnResultDoubleClick">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="180" />
+                <DataGridTextColumn Header="Path" Binding="{Binding Path}" Width="*" />
+                <DataGridTextColumn Header="Bytes" Binding="{Binding Size, StringFormat=N0}"
+                                    Width="110" />
+                <DataGridTextColumn Header="Depth" Binding="{Binding Depth}" Width="65" />
+                <DataGridTextColumn Header="Parent %"
+                                    Binding="{Binding PercentOfParent, StringFormat=F1}" Width="80" />
+                <DataGridTextColumn Header="Total %"
+                                    Binding="{Binding PercentOfTotal, StringFormat=F2}" Width="80" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>
