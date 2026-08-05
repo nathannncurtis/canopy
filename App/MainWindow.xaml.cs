@@ -1,5 +1,6 @@
 using System.Security.Principal;
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using SizeMonitor.Controls;
 using SizeMonitor.Helpers;
@@ -14,6 +15,7 @@ public partial class MainWindow : FluentWindow
     CancellationTokenSource? _cts;
     ScanResultManaged?       _result;
     ScanResultMetrics?       _metrics;
+    ScanNavigation?          _navigation;
     SizeTreeView?            _treeView;
     Treemap?                 _treemap;
     Stopwatch?               _scanClock;
@@ -76,6 +78,10 @@ public partial class MainWindow : FluentWindow
         _statVolume.Text        = "";
         _statSelection.Text     = "";
         _metrics                = null;
+        _navigation             = null;
+        _navigationBar.SetNavigation(null);
+        _emptyItemsView.SetResult(null);
+        _btnExport.IsEnabled    = false;
         _statCurrent.Text       = "Starting scan...";
         _scanProgress.Value     = 0;
         _scanProgress.IsIndeterminate = true;
@@ -107,7 +113,7 @@ public partial class MainWindow : FluentWindow
             _multiSession = new MultiScanSession(Math.Min(paths.Length, Math.Max(1, Environment.ProcessorCount / 2)));
             IReadOnlyList<TargetScanResult> targetResults =
                 await _multiSession.ScanAsync(paths, progress, _cts.Token, scanOptions);
-        _result = ScanResultCombiner.CombineTargets(targetResults);
+            _result = ScanResultCombiner.CombineTargets(targetResults);
             OnScanComplete(_result, targetResults);
         }
         catch (OperationCanceledException)
@@ -188,6 +194,12 @@ public partial class MainWindow : FluentWindow
         _treeView?.Populate(result);
         _treemap?.SetRoot(result, 0);
         _searchView.SetResult(result);
+        _navigation = result.Nodes.Length == 0
+            ? null
+            : new ScanNavigation(new ScanNavigationIndex(result));
+        _navigationBar.SetNavigation(_navigation);
+        _emptyItemsView.SetResult(result);
+        _btnExport.IsEnabled = result.Nodes.Length > 0;
         if (result.Nodes.Length > 0) ShowNodeMetrics(0);
     }
 
@@ -301,6 +313,7 @@ public partial class MainWindow : FluentWindow
     void OnTreeNodeSelected(uint nodeIndex)
     {
         if (_result == null) return;
+        _navigationBar.NavigateTo(nodeIndex);
         ShowNodeMetrics(nodeIndex);
         // Only navigate the treemap into directory nodes; selecting a file node
         // would produce an empty treemap (files have no children).
@@ -309,6 +322,22 @@ public partial class MainWindow : FluentWindow
     }
 
     void OnSearchNodeActivated(uint nodeIndex)
+    {
+        if (_result is null || nodeIndex >= _result.Nodes.Length) return;
+        _navigationBar.NavigateTo(nodeIndex);
+        ActivateNode(nodeIndex);
+    }
+
+    void OnNavigationNodeActivated(uint nodeIndex) => ActivateNode(nodeIndex);
+
+    void OnEmptyItemActivated(uint nodeIndex)
+    {
+        _navigationBar.NavigateTo(nodeIndex);
+        ActivateNode(nodeIndex);
+        _contentTabs.SelectedIndex = 0;
+    }
+
+    void ActivateNode(uint nodeIndex)
     {
         if (_result is null || nodeIndex >= _result.Nodes.Length) return;
         ShowNodeMetrics(nodeIndex);
@@ -320,6 +349,31 @@ public partial class MainWindow : FluentWindow
         {
             _treemap?.SetRoot(_result, navigationRoot);
             _contentTabs.SelectedIndex = 0;
+        }
+    }
+
+    async void OnExport(object sender, RoutedEventArgs e)
+    {
+        if (_result is null) return;
+        _btnExport.IsEnabled = false;
+        _statCurrent.Text = "Exporting results...";
+        try
+        {
+            var service = new ScanResultExportService();
+            ScanResultExportResult export = await service.ExportAsync(_result, this);
+            _statCurrent.Text = export.Status == ScanResultExportStatus.Saved
+                ? $"Exported {export.Format} to {export.Path}"
+                : "Export cancelled";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                      or InvalidDataException or NotSupportedException)
+        {
+            Logger.Error("result export failed", ex);
+            _statCurrent.Text = $"Export failed: {ex.Message}";
+        }
+        finally
+        {
+            _btnExport.IsEnabled = _result is not null;
         }
     }
 
