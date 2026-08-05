@@ -78,6 +78,16 @@ public sealed class ScanResultQueryTests
         Assert.Throws<InvalidDataException>(() => ScanResultQuery.Search(result));
     }
 
+    [Fact]
+    public void HonorsCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() =>
+            ScanResultQuery.Search(Result(), cancellationToken: cancellation.Token));
+    }
+
     static ScanResultManaged Result() => new()
     {
         Nodes =

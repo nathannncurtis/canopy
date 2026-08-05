@@ -8,7 +8,8 @@ public static class ScanResultQuery
 
     public static IReadOnlyList<ScanSearchResult> Search(
         ScanResultManaged result,
-        ScanQuery? query = null)
+        ScanQuery? query = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(result);
         query ??= new ScanQuery();
@@ -27,6 +28,7 @@ public static class ScanResultQuery
         var matches = new List<ScanSearchResult>();
         for (uint index = 0; index < result.Nodes.Length; index++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ScanNode node = result.Nodes[index];
             string name = result.Names[index];
             bool isDirectory = (node.Flags & ScanNodeFlags.Directory) != 0;
