@@ -48,6 +48,10 @@ public sealed class ScanSession : IDisposable
                     ct.ThrowIfCancellationRequested();
             }, ct);
 
+            // Cancellation and native completion can race. The native handle may
+            // become signaled before the polling loop observes the token; honor
+            // the caller's cancellation rather than returning a partial result.
+            ct.ThrowIfCancellationRequested();
             var result = GetResult();
             State = ScanSessionState.Completed;
             return result;
