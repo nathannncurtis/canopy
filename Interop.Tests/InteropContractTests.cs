@@ -134,4 +134,28 @@ public sealed class InteropContractTests
             ExcludedPatterns = ["one;two"],
         }.Validate());
     }
+
+    [Fact]
+    public void VolumeStorageInfoCalculatesUsedCapacityAndSerialText()
+    {
+        VolumeStorageInfo info = VolumeStorageInfo.FromRaw(
+            "C:\\", "Data", "NTFS", 0x1234abcd, 4096, 10_000, 2_500);
+
+        Assert.Equal(7_500ul, info.UsedBytes);
+        Assert.Equal(2_500ul, info.FreeBytes);
+        Assert.Equal("1234-ABCD", info.SerialNumberText);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            VolumeStorageInfo.FromRaw("C:\\", "", "NTFS", 0, 4096, 1, 2));
+    }
+
+    [Fact]
+    public void VolumeStorageInfoReadsTheTestVolume()
+    {
+        VolumeStorageInfo info = VolumeStorageInfo.Read(Path.GetTempPath());
+
+        Assert.NotEmpty(info.RootPath);
+        Assert.NotEmpty(info.FileSystem);
+        Assert.True(info.ClusterSize > 0);
+        Assert.Equal(info.TotalBytes, info.UsedBytes + info.FreeBytes);
+    }
 }
