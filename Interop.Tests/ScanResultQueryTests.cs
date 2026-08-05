@@ -19,7 +19,8 @@ public sealed class ScanResultQueryTests
             Kinds = ScanItemKinds.Files,
         };
 
-        ScanSearchResult match = Assert.Single(ScanResultQuery.Search(Result(), query));
+        ScanSearchResult match = Assert.Single(ScanResultQuery.Search(
+            Result(), query, TestContext.Current.CancellationToken));
 
         Assert.Equal("report.txt", match.Name);
         Assert.Equal(Path.Combine("root", "docs", "report.txt"), match.Path);
@@ -39,7 +40,8 @@ public sealed class ScanResultQueryTests
             ExcludedFlags = ScanNodeFlags.Reparse,
         };
 
-        Assert.Equal("docs", Assert.Single(ScanResultQuery.Search(Result(), query)).Name);
+        Assert.Equal("docs", Assert.Single(ScanResultQuery.Search(
+            Result(), query, TestContext.Current.CancellationToken)).Name);
     }
 
     [Fact]
@@ -56,7 +58,8 @@ public sealed class ScanResultQueryTests
         };
 
         Assert.Equal(["report.txt", "cache.log"],
-            ScanResultQuery.Search(Result(), query).Select(item => item.Name));
+            ScanResultQuery.Search(Result(), query, TestContext.Current.CancellationToken)
+                .Select(item => item.Name));
     }
 
     [Fact]
@@ -64,7 +67,8 @@ public sealed class ScanResultQueryTests
     {
         var query = new ScanQuery { MinimumSize = 2, MaximumSize = 1 };
 
-        Assert.Throws<ArgumentException>(() => ScanResultQuery.Search(Result(), query));
+        Assert.Throws<ArgumentException>(() => ScanResultQuery.Search(
+            Result(), query, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -75,7 +79,8 @@ public sealed class ScanResultQueryTests
         root.Parent = 1;
         result.Nodes[0] = root;
 
-        Assert.Throws<InvalidDataException>(() => ScanResultQuery.Search(result));
+        Assert.Throws<InvalidDataException>(() => ScanResultQuery.Search(
+            result, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
