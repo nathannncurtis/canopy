@@ -29,6 +29,7 @@ add_library(Canopy.Core SHARED
     src/mft_scanner.cpp
     src/dir_scanner.cpp
     src/node_pool.cpp
+    src/tree_compactor.cpp
     src/size_rollup.cpp
     asm/simd_sum.cpp
     asm/simd_sum.asm
@@ -73,7 +74,7 @@ if(MSVC)
 endif()
 add_test(NAME native_scan_contract COMMAND scan_test "${CMAKE_CURRENT_SOURCE_DIR}/test")
 
-add_executable(node_pool_test test/node_pool_test.cpp src/node_pool.cpp)
+add_executable(node_pool_test test/node_pool_test.cpp src/node_pool.cpp src/tree_compactor.cpp)
 target_include_directories(node_pool_test PRIVATE include src)
 target_compile_definitions(node_pool_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 if(MSVC)

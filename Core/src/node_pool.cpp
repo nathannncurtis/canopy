@@ -1,5 +1,6 @@
 #include "node_pool.h"
 #include <cstring>
+#include <utility>
 
 static_assert(sizeof(ScanNode) == 32, "ScanNode must be 32 bytes");
 
@@ -76,6 +77,17 @@ void NodePool::Finalize(ScanResult* out)
 bool NodePool::Full() const
 {
     return !m_base || static_cast<SIZE_T>(m_node_count) >= kNodeCapacity;
+}
+
+void NodePool::Swap(NodePool& other) noexcept
+{
+    using std::swap;
+    swap(m_base, other.m_base);
+    swap(m_name_base, other.m_name_base);
+    swap(m_node_committed, other.m_node_committed);
+    swap(m_name_committed, other.m_name_committed);
+    swap(m_node_count, other.m_node_count);
+    swap(m_name_used, other.m_name_used);
 }
 
 bool NodePool::GrowNodes()
