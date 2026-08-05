@@ -27,11 +27,12 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
             <ui:TextBox Grid.Column="0"
                         x:Name="_pathBox"
-                        PlaceholderText="Enter a path or \\server\share" />
+                        PlaceholderText="Enter paths separated by semicolons (local, mapped, or \\server\share)" />
 
             <ui:Button Grid.Column="1"
                        x:Name="_btnScan"
@@ -41,13 +42,20 @@
                        Click="OnScan" />
 
             <ui:Button Grid.Column="2"
+                       x:Name="_btnPause"
+                       Content="Pause"
+                       Margin="8,0,0,0"
+                       IsEnabled="False"
+                       Click="OnPause" />
+
+            <ui:Button Grid.Column="3"
                        x:Name="_btnCancel"
                        Content="Cancel"
                        Margin="8,0,0,0"
                        IsEnabled="False"
                        Click="OnCancel" />
 
-            <ui:InfoBadge Grid.Column="3"
+            <ui:InfoBadge Grid.Column="4"
                           x:Name="_elevBadge"
                           Severity="Caution"
                           ToolTip="Running without elevation (MFT scan unavailable)"
@@ -94,13 +102,33 @@
                 Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                 BorderThickness="0,1,0,0"
                 BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
-            <StackPanel Orientation="Horizontal" Margin="12,5">
-                <ui:TextBlock x:Name="_statSize" Text="No scan" />
-                <ui:TextBlock Text=" | " Appearance="Secondary" />
-                <ui:TextBlock x:Name="_statFiles" Text="" />
-                <ui:TextBlock x:Name="_statTimeSep" Text=" | " Appearance="Secondary" Visibility="Collapsed" />
-                <ui:TextBlock x:Name="_statTime" Text="" />
-            </StackPanel>
+            <Grid Margin="12,5">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel Grid.Row="0" Orientation="Horizontal">
+                    <ui:TextBlock x:Name="_statSize" Text="No scan" />
+                    <ui:TextBlock Text=" | " Appearance="Secondary" />
+                    <ui:TextBlock x:Name="_statFiles" Text="" />
+                    <ui:TextBlock x:Name="_statTimeSep" Text=" | " Appearance="Secondary" Visibility="Collapsed" />
+                    <ui:TextBlock x:Name="_statTime" Text="" />
+                    <ui:TextBlock x:Name="_statScannerSep" Text=" | " Appearance="Secondary" Visibility="Collapsed" />
+                    <ui:TextBlock x:Name="_statScanner" Text="" />
+                </StackPanel>
+                <Grid Grid.Row="1" Margin="0,4,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ProgressBar Grid.Column="0" x:Name="_scanProgress"
+                                 Height="4" Minimum="0" Maximum="100"
+                                 Visibility="Collapsed" />
+                    <ui:TextBlock Grid.Column="1" x:Name="_statCurrent"
+                                  Margin="8,0,0,0" Appearance="Secondary"
+                                  TextTrimming="CharacterEllipsis" />
+                </Grid>
+            </Grid>
         </Border>
     </Grid>
 </ui:FluentWindow>
