@@ -15,6 +15,8 @@ public enum ScanResultExportFormat
 {
     Csv,
     Json,
+    Xml,
+    Html,
 }
 
 public sealed record ScanResultExportResult(
@@ -36,13 +38,16 @@ public sealed class ScanResultExportService
         var dialog = new SaveFileDialog
         {
             Title = "Export scan results",
-            Filter = "CSV files (*.csv)|*.csv|JSON files (*.json)|*.json",
+            Filter = "CSV files (*.csv)|*.csv|JSON files (*.json)|*.json|" +
+                     "XML files (*.xml)|*.xml|HTML files (*.html)|*.html",
             FilterIndex = 1,
-            DefaultExt = ".csv",
+            // With no fixed DefaultExt, AddExtension uses the active filter so changing
+            // formats also changes the suggested canopy-scan extension.
+            DefaultExt = string.Empty,
             AddExtension = true,
             OverwritePrompt = true,
             CheckPathExists = true,
-            FileName = "canopy-scan.csv",
+            FileName = "canopy-scan",
         };
 
         bool? accepted = owner is null ? dialog.ShowDialog() : dialog.ShowDialog(owner);
@@ -68,10 +73,25 @@ public sealed class ScanResultExportService
                 bufferSize: 64 * 1024,
                 options: FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
-                if (format == ScanResultExportFormat.Json)
-                    await ScanResultExporter.ExportJsonAsync(result, stream, cancellationToken).ConfigureAwait(false);
-                else
-                    await ScanResultExporter.ExportCsvAsync(result, stream, cancellationToken).ConfigureAwait(false);
+                switch (format)
+                {
+                    case ScanResultExportFormat.Json:
+                        await ScanResultExporter.ExportJsonAsync(result, stream, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    case ScanResultExportFormat.Xml:
+                        await ScanReportExporter.ExportXmlAsync(result, stream, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    case ScanResultExportFormat.Html:
+                        await ScanReportExporter.ExportHtmlAsync(result, stream, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    default:
+                        await ScanResultExporter.ExportCsvAsync(result, stream, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                }
 
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
                 stream.Flush(flushToDisk: true);
@@ -109,6 +129,17 @@ public sealed class ScanResultExportService
             return ScanResultExportFormat.Json;
         if (extension.Equals(".csv", StringComparison.OrdinalIgnoreCase))
             return ScanResultExportFormat.Csv;
-        return filterIndex == 2 ? ScanResultExportFormat.Json : ScanResultExportFormat.Csv;
+        if (extension.Equals(".xml", StringComparison.OrdinalIgnoreCase))
+            return ScanResultExportFormat.Xml;
+        if (extension.Equals(".html", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".htm", StringComparison.OrdinalIgnoreCase))
+            return ScanResultExportFormat.Html;
+        return filterIndex switch
+        {
+            2 => ScanResultExportFormat.Json,
+            3 => ScanResultExportFormat.Xml,
+            4 => ScanResultExportFormat.Html,
+            _ => ScanResultExportFormat.Csv,
+        };
     }
 }
