@@ -31,6 +31,7 @@ add_library(Canopy.Core SHARED
     src/node_pool.cpp
     src/tree_compactor.cpp
     src/size_rollup.cpp
+    src/cpu_features.cpp
     asm/simd_sum.cpp
     asm/simd_sum.asm
     "${SIMD_OBJ}"
@@ -81,3 +82,16 @@ if(MSVC)
     target_compile_options(node_pool_test PRIVATE /W4 /WX /utf-8)
 endif()
 add_test(NAME node_pool_contract COMMAND node_pool_test)
+
+add_executable(simd_sum_test
+    test/simd_sum_test.cpp
+    src/cpu_features.cpp
+    asm/simd_sum.cpp
+    "${SIMD_OBJ}"
+)
+target_include_directories(simd_sum_test PRIVATE asm src)
+target_compile_definitions(simd_sum_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+if(MSVC)
+    target_compile_options(simd_sum_test PRIVATE /W4 /WX /utf-8)
+endif()
+add_test(NAME avx2_asm_parity COMMAND simd_sum_test)

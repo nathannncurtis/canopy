@@ -10,6 +10,23 @@ static bool Check(bool condition, const wchar_t* message)
 
 int wmain(int argc, wchar_t* argv[])
 {
+    if (!Check(Smon_GetAbiVersion() == SMON_ABI_VERSION, L"ABI version") ||
+        !Check(Smon_GetCapabilities(nullptr) == FALSE, L"null capabilities rejected"))
+        return 1;
+    SmonCapabilities too_small{};
+    too_small.struct_size = sizeof(too_small) - 1;
+    if (!Check(Smon_GetCapabilities(&too_small) == FALSE, L"small capabilities rejected"))
+        return 1;
+    SmonCapabilities capabilities{};
+    capabilities.struct_size = sizeof(capabilities);
+    if (!Check(Smon_GetCapabilities(&capabilities) != FALSE, L"capabilities returned") ||
+        !Check(capabilities.abi_version == SMON_ABI_VERSION, L"capability ABI version") ||
+        !Check((capabilities.flags & SMON_CAP_DIRECTORY_SCANNER) != 0,
+               L"directory capability") ||
+        !Check(capabilities.max_nodes > 0 && capabilities.max_name_bytes > 0,
+               L"arena capabilities"))
+        return 1;
+
     if (!Check(Smon_Cancel(nullptr) == FALSE, L"cancel rejects null") ||
         !Check(Smon_SetPaused(nullptr, TRUE) == FALSE, L"pause rejects null") ||
         !Check(Smon_Wait(nullptr, 0) == FALSE, L"wait rejects null") ||

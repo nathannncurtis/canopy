@@ -2,6 +2,33 @@
 #include "scan_context.h"
 #include "scanner_router.h"
 #include "size_rollup.h"
+#include "cpu_features.h"
+#include <cstring>
+
+DWORD WINAPI Smon_GetAbiVersion(void)
+{
+    return SMON_ABI_VERSION;
+}
+
+BOOL WINAPI Smon_GetCapabilities(SmonCapabilities* capabilities)
+{
+    if (!capabilities || capabilities->struct_size < sizeof(SmonCapabilities)) {
+        SetLastError(capabilities ? ERROR_INSUFFICIENT_BUFFER : ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    SmonCapabilities value{};
+    value.struct_size = sizeof(value);
+    value.abi_version = SMON_ABI_VERSION;
+    value.flags = SMON_CAP_MFT_SCANNER |
+                  SMON_CAP_DIRECTORY_SCANNER |
+                  SMON_CAP_PAUSE_RESUME;
+    if (CpuHasAvx2()) value.flags |= SMON_CAP_AVX2_ASM;
+    value.max_nodes = NodePool::MaxNodes;
+    value.max_name_bytes = NodePool::MaxNameBytes;
+    std::memcpy(capabilities, &value, sizeof(value));
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
+}
 
 ScanHandle WINAPI Smon_BeginScan(const wchar_t* path,
                                  SmonProgressCallback cb,
