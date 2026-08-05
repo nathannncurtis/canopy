@@ -1,11 +1,20 @@
 #include "../include/smon_api.h"
 #include <cstdio>
+#include <cwchar>
 
 static bool Check(bool condition, const wchar_t* message)
 {
     if (condition) return true;
     fwprintf(stderr, L"FAIL: %s\n", message);
     return false;
+}
+
+static bool EndsWithInsensitive(const wchar_t* value, uint32_t length,
+                                const wchar_t* suffix)
+{
+    const size_t suffix_length = wcslen(suffix);
+    return length >= suffix_length &&
+           _wcsnicmp(value + length - suffix_length, suffix, suffix_length) == 0;
 }
 
 int wmain(int argc, wchar_t* argv[])
@@ -23,6 +32,8 @@ int wmain(int argc, wchar_t* argv[])
         !Check(capabilities.abi_version == SMON_ABI_VERSION, L"capability ABI version") ||
         !Check((capabilities.flags & SMON_CAP_DIRECTORY_SCANNER) != 0,
                L"directory capability") ||
+        !Check((capabilities.flags & SMON_CAP_SCAN_OPTIONS) != 0,
+               L"scan options capability") ||
         !Check(capabilities.max_nodes > 0 && capabilities.max_name_bytes > 0,
                L"arena capabilities"))
         return 1;
@@ -36,6 +47,77 @@ int wmain(int argc, wchar_t* argv[])
 
     const wchar_t* path = argc > 1 ? argv[1] : L"C:\\Windows\\System32";
     wprintf(L"scan_test: %s\n", path);
+
+    if (!Check(Smon_BeginScanEx(nullptr, nullptr, nullptr, nullptr) == nullptr &&
+               GetLastError() == ERROR_INVALID_PARAMETER,
+               L"extended scan rejects null path"))
+        return 1;
+
+    SmonScanOptions invalid{};
+    invalid.struct_size = sizeof(invalid) - 1;
+    if (!Check(Smon_BeginScanEx(path, &invalid, nullptr, nullptr) == nullptr &&
+               GetLastError() == ERROR_INSUFFICIENT_BUFFER,
+               L"extended scan rejects a short options struct"))
+        return 1;
+
+    invalid = {};
+    invalid.struct_size = sizeof(invalid);
+    invalid.flags = 0x80000000u;
+    if (!Check(Smon_BeginScanEx(path, &invalid, nullptr, nullptr) == nullptr &&
+               GetLastError() == ERROR_INVALID_FLAGS,
+               L"extended scan rejects unknown flags"))
+        return 1;
+
+    invalid = {};
+    invalid.struct_size = sizeof(invalid);
+    invalid.minimum_file_size = 2;
+    invalid.maximum_file_size = 1;
+    if (!Check(Smon_BeginScanEx(path, &invalid, nullptr, nullptr) == nullptr &&
+               GetLastError() == ERROR_INVALID_PARAMETER,
+               L"extended scan rejects an inverted size range"))
+        return 1;
+
+    invalid = {};
+    invalid.struct_size = sizeof(invalid);
+    invalid.worker_threads = 1025;
+    if (!Check(Smon_BeginScanEx(path, &invalid, nullptr, nullptr) == nullptr &&
+               GetLastError() == ERROR_INVALID_PARAMETER,
+               L"extended scan rejects an excessive worker count"))
+        return 1;
+
+    SmonScanOptions filtered{};
+    filtered.struct_size = sizeof(filtered);
+    filtered.flags = SMON_OPTION_FORCE_DIRECTORY_SCAN;
+    filtered.worker_threads = 1;
+    filtered.excluded_extensions = L".cpp";
+    ScanHandle filtered_handle = Smon_BeginScanEx(path, &filtered, nullptr, nullptr);
+    if (!Check(filtered_handle != nullptr, L"extended scan starts"))
+        return 1;
+    if (!Check(Smon_GetScannerKind(filtered_handle) == SMON_SCANNER_DIRECTORY,
+               L"directory scanner can be forced") ||
+        !Check(Smon_Wait(filtered_handle, INFINITE) != FALSE,
+               L"filtered scan completed")) {
+        Smon_Cancel(filtered_handle);
+        Smon_Wait(filtered_handle, INFINITE);
+        Smon_FreeResult(filtered_handle);
+        return 1;
+    }
+    ScanResult filtered_result{};
+    if (!Check(Smon_GetResult(filtered_handle, &filtered_result) != FALSE,
+               L"filtered result returned")) {
+        Smon_FreeResult(filtered_handle);
+        return 1;
+    }
+    for (uint32_t i = 0; i < filtered_result.node_count; ++i) {
+        const ScanNode& node = filtered_result.nodes[i];
+        const wchar_t* name = filtered_result.name_buf + node.name_offset;
+        if (!Check(!EndsWithInsensitive(name, node.name_len, L".cpp"),
+                   L"excluded extension absent from result")) {
+            Smon_FreeResult(filtered_handle);
+            return 1;
+        }
+    }
+    Smon_FreeResult(filtered_handle);
 
     ScanHandle h = Smon_BeginScan(path, nullptr, nullptr);
     if (!h) { wprintf(L"Smon_BeginScan returned null\n"); return 1; }

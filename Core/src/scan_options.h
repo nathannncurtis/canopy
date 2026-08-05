@@ -16,6 +16,7 @@ struct ScanOptions {
     bool include_reparse_points = true;
     bool follow_reparse_points = false;
     bool stay_on_volume = true;
+    bool force_directory_scanner = false;
     std::vector<std::wstring> excluded_patterns;
     std::vector<std::wstring> excluded_extensions;
 

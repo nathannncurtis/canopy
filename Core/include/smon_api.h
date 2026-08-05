@@ -28,6 +28,24 @@
 #define SMON_CAP_DIRECTORY_SCANNER 0x00000002ull
 #define SMON_CAP_PAUSE_RESUME      0x00000004ull
 #define SMON_CAP_AVX2_ASM          0x00000008ull
+#define SMON_CAP_SCAN_OPTIONS      0x00000010ull
+
+#define SMON_OPTION_EXCLUDE_HIDDEN       0x00000001u
+#define SMON_OPTION_EXCLUDE_SYSTEM       0x00000002u
+#define SMON_OPTION_EXCLUDE_TEMPORARY    0x00000004u
+#define SMON_OPTION_EXCLUDE_REPARSE      0x00000008u
+#define SMON_OPTION_FORCE_DIRECTORY_SCAN 0x00000010u
+
+typedef struct SmonScanOptions {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t max_depth;       // 0 = unlimited; scan root is depth 0
+    uint32_t worker_threads;  // 0 = automatic
+    uint64_t minimum_file_size;
+    uint64_t maximum_file_size; // 0 = unlimited
+    const wchar_t* excluded_patterns;   // semicolon/comma/newline separated
+    const wchar_t* excluded_extensions; // semicolon/comma/newline separated
+} SmonScanOptions;
 
 typedef struct SmonCapabilities {
     uint32_t struct_size;
@@ -72,6 +90,11 @@ extern "C" {
 
 SMON_API ScanHandle WINAPI Smon_BeginScan(
     const wchar_t*       path,
+    SmonProgressCallback callback,
+    void*                user_data);
+SMON_API ScanHandle WINAPI Smon_BeginScanEx(
+    const wchar_t*       path,
+    const SmonScanOptions* options,
     SmonProgressCallback callback,
     void*                user_data);
 
