@@ -57,7 +57,9 @@ struct DirWorkState {
 
 struct DirWorkItem {
     std::wstring path;
+    std::wstring relative_path;
     uint32_t     parent_idx;
+    uint32_t     depth;
 };
 
 // Extended state with typed queue.
@@ -69,6 +71,7 @@ struct DirState {
     volatile LONG           in_flight; // work items currently being processed
     uint64_t volatile       dirs_done;
     uint64_t volatile       files_done;
+    uint64_t volatile       bytes_done;
     PTP_WORK                tp_work;   // set after creation so callbacks can resubmit
 };
 
@@ -137,7 +140,9 @@ DWORD WINAPI DirScanThread(LPVOID param)
 
     SYSTEM_INFO si{};
     GetSystemInfo(&si);
-    DWORD max_threads = si.dwNumberOfProcessors * 4;
+    DWORD max_threads = ctx->options.worker_threads != 0
+        ? ctx->options.worker_threads
+        : si.dwNumberOfProcessors * 4;
     if (max_threads > 32) max_threads = 32;
     if (max_threads < 1) max_threads = 1;
     SetThreadpoolThreadMaximum(pool, max_threads);
@@ -151,6 +156,7 @@ DWORD WINAPI DirScanThread(LPVOID param)
     state.NtQueryDir = NtQueryDir;
     state.dirs_done  = 0;
     state.files_done = 0;
+    state.bytes_done = 0;
     state.in_flight  = 0;
     InitializeCriticalSection(&state.cs);
 
@@ -158,7 +164,9 @@ DWORD WINAPI DirScanThread(LPVOID param)
     {
         DirWorkItem item;
         item.path       = scan_path;
+        item.relative_path.clear();
         item.parent_idx = root_idx;
+        item.depth      = 0;
         state.pending.push(std::move(item));
     }
     delete[] scan_path;
@@ -189,6 +197,9 @@ DWORD WINAPI DirScanThread(LPVOID param)
     DestroyThreadpoolEnvironment(&tpenv);
     CloseThreadpool(pool);
     DeleteCriticalSection(&state.cs);
+
+    if (ctx->callback)
+        ctx->callback(state.dirs_done, state.files_done, state.bytes_done, ctx->user_data);
 
     QueryPerformanceCounter(&t1);
     ctx->result.elapsed_sec = static_cast<double>(t1.QuadPart - t0.QuadPart)
@@ -278,11 +289,24 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                 uint64_t entry_size = is_dir ? 0 :
                     static_cast<uint64_t>(fdi->AllocationSize.QuadPart);
 
+                std::wstring name(fdi->FileName, name_chars);
+                std::wstring relative_path = item.relative_path;
+                if (!relative_path.empty()) relative_path += L'\\';
+                relative_path += name;
+                uint32_t child_depth = item.depth + 1;
+                if (!ctx->options.ShouldInclude(relative_path, name,
+                                                fdi->FileAttributes, entry_size,
+                                                is_dir, child_depth)) {
+                    if (fdi->NextEntryOffset == 0) break;
+                    p += fdi->NextEntryOffset;
+                    continue;
+                }
+
                 // Build subdirectory path before taking the lock (avoids holding CS
                 // across std::wstring allocation).
                 std::wstring child_path;
                 bool enqueue_child = false;
-                if (is_dir && !is_reparse) {
+                if (is_dir && !is_reparse && child_depth < ctx->options.max_depth) {
                     child_path = item.path;
                     if (child_path.back() != L'\\')
                         child_path += L'\\';
@@ -331,7 +355,9 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                         if (enqueue_child) {
                             DirWorkItem child_item;
                             child_item.path       = std::move(child_path);
+                            child_item.relative_path = std::move(relative_path);
                             child_item.parent_idx = idx;
+                            child_item.depth      = child_depth;
                             state->pending.push(std::move(child_item));
                         }
                     }
@@ -349,12 +375,15 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                     } else {
                         InterlockedIncrement64(
                             reinterpret_cast<volatile LONG64*>(&state->files_done));
+                        InterlockedAdd64(
+                            reinterpret_cast<volatile LONG64*>(&state->bytes_done),
+                            static_cast<LONG64>(entry_size));
                     }
 
-                    // Progress callback every 1000 directories.
                     uint64_t dd = state->dirs_done;
-                    if (dd % 1000 == 0 && ctx->callback) {
-                        ctx->callback(dd, state->files_done, 0, ctx->user_data);
+                    uint64_t fd = state->files_done;
+                    if (((dd + fd) & 2047u) == 0 && ctx->callback) {
+                        ctx->callback(dd, fd, state->bytes_done, ctx->user_data);
                     }
                 }
             }

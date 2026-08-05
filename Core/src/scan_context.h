@@ -1,11 +1,13 @@
 #pragma once
 #include "../include/smon_api.h"
 #include "node_pool.h"
+#include "scan_options.h"
 #include <atomic>
 #include <windows.h>
 
 struct ScanContext {
     NodePool           pool;
+    ScanOptions        options;
     ScanResult         result{};
     SmonProgressCallback callback  = nullptr;
     void*              user_data   = nullptr;
