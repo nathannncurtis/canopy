@@ -24,6 +24,18 @@ public sealed class InteropContractTests
         Assert.Equal(0x01u, ScanNodeFlags.Directory);
         Assert.Equal(0x02u, ScanNodeFlags.Symlink);
         Assert.Equal(0x04u, ScanNodeFlags.Reparse);
+        Assert.Equal(1u, CoreCapabilities.ExpectedAbiVersion);
+        Assert.Equal(0x01ul, (ulong)CoreCapability.MftScanner);
+        Assert.Equal(0x08ul, (ulong)CoreCapability.Avx2Assembly);
+        Assert.Equal(24, Marshal.SizeOf<SmonCapabilitiesNative>());
+    }
+
+    [Fact]
+    public void RejectsMismatchedNativeAbi()
+    {
+        CoreCapabilities.ValidateCompatibility(CoreCapabilities.ExpectedAbiVersion);
+        Assert.Throws<CoreCompatibilityException>(() =>
+            CoreCapabilities.ValidateCompatibility(CoreCapabilities.ExpectedAbiVersion + 1));
     }
 
     [Fact]
