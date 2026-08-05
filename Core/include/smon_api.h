@@ -18,6 +18,10 @@
 #define SMON_FLAG_SYMLINK   0x02u
 #define SMON_FLAG_REPARSE   0x04u
 
+#define SMON_SCANNER_UNKNOWN   0u
+#define SMON_SCANNER_MFT       1u
+#define SMON_SCANNER_DIRECTORY 2u
+
 // 32 bytes, naturally aligned -- matches C# [StructLayout(LayoutKind.Sequential, Pack=8)]
 typedef struct ScanNode {
     uint64_t size;         // on-disk bytes; dirs include all descendants
@@ -57,7 +61,10 @@ SMON_API ScanHandle WINAPI Smon_BeginScan(
     void*                user_data);
 
 SMON_API BOOL WINAPI Smon_Cancel(ScanHandle handle);
+SMON_API BOOL WINAPI Smon_SetPaused(ScanHandle handle, BOOL paused);
 SMON_API BOOL WINAPI Smon_Wait(ScanHandle handle, DWORD timeout_ms);
+SMON_API DWORD WINAPI Smon_GetError(ScanHandle handle);
+SMON_API DWORD WINAPI Smon_GetScannerKind(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_GetResult(ScanHandle handle, ScanResult* out);
 SMON_API void WINAPI Smon_FreeResult(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_IsNtfsVolume(const wchar_t* path);

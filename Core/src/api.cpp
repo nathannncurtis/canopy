@@ -24,12 +24,30 @@ BOOL WINAPI Smon_Cancel(ScanHandle h)
     return TRUE;
 }
 
+BOOL WINAPI Smon_SetPaused(ScanHandle h, BOOL paused)
+{
+    if (!h) return FALSE;
+    static_cast<ScanContext*>(h)->paused.store(paused != FALSE,
+                                               std::memory_order_release);
+    return TRUE;
+}
+
 BOOL WINAPI Smon_Wait(ScanHandle h, DWORD timeout_ms)
 {
     if (!h) return FALSE;
     auto* ctx = static_cast<ScanContext*>(h);
     if (!ctx->thread) return FALSE;
     return WaitForSingleObject(ctx->thread, timeout_ms) == WAIT_OBJECT_0;
+}
+
+DWORD WINAPI Smon_GetError(ScanHandle h)
+{
+    return h ? static_cast<ScanContext*>(h)->error : ERROR_INVALID_HANDLE;
+}
+
+DWORD WINAPI Smon_GetScannerKind(ScanHandle h)
+{
+    return h ? static_cast<ScanContext*>(h)->scanner_kind : SMON_SCANNER_UNKNOWN;
 }
 
 BOOL WINAPI Smon_GetResult(ScanHandle h, ScanResult* out)
