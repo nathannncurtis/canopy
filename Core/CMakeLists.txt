@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
 project(SizeMonitorCore CXX ASM_MASM)
 
+include(CTest)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -59,7 +61,14 @@ set_target_properties(Canopy.Core PROPERTIES
 add_executable(scan_test test/scan_test.cpp)
 target_include_directories(scan_test PRIVATE include)
 target_link_libraries(scan_test PRIVATE Canopy.Core)
+add_custom_command(TARGET scan_test POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "$<TARGET_FILE:Canopy.Core>"
+            "$<TARGET_FILE_DIR:scan_test>"
+    COMMENT "Copying Canopy.Core.dll beside scan_test"
+)
 target_compile_definitions(scan_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 if(MSVC)
     target_compile_options(scan_test PRIVATE /W4 /utf-8)
 endif()
+add_test(NAME native_scan_contract COMMAND scan_test "${CMAKE_CURRENT_SOURCE_DIR}/test")

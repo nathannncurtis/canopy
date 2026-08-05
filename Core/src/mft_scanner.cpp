@@ -124,6 +124,8 @@ DWORD WINAPI MftScanThread(LPVOID param)
     for (;;) {
         if (ctx->cancelled.load())
             break;
+        if (!WaitWhilePaused(ctx))
+            break;
 
         DWORD out_bytes = 0;
         BOOL ok = DeviceIoControl(vol,
@@ -215,6 +217,10 @@ DWORD WINAPI MftScanThread(LPVOID param)
     // Iterate all allocated nodes by index range (pool tracks count via Finalize later).
     // node_count equals record_count capped by pool.
     for (uint32_t i = 0; i < node_count; ++i) {
+        // Even after cancellation every node must have the temporary ParentFRN
+        // removed from its size field, otherwise a partial result is corrupt.
+        // WaitWhilePaused returns immediately once cancellation is requested.
+        WaitWhilePaused(ctx);
         ScanNode* node = ctx->pool.NodeAt(i);
 
         DWORDLONG parent_frn = 0;
@@ -258,6 +264,8 @@ DWORD WINAPI MftScanThread(LPVOID param)
         if (root_dir != INVALID_HANDLE_VALUE) {
             for (uint32_t i = 0; i < node_count; ++i) {
                 if (ctx->cancelled.load())
+                    break;
+                if (!WaitWhilePaused(ctx))
                     break;
                 ScanNode* node = ctx->pool.NodeAt(i);
                 if (node->flags & SMON_FLAG_DIRECTORY)

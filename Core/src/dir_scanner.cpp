@@ -196,6 +196,11 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
         return;
     }
 
+    if (!WaitWhilePaused(ctx)) {
+        InterlockedDecrement(&state->in_flight);
+        return;
+    }
+
     // Dequeue one item.
     DirWorkItem item;
     {
@@ -229,6 +234,8 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
     BOOLEAN restart = TRUE;
     for (;;) {
         if (ctx->cancelled.load())
+            break;
+        if (!WaitWhilePaused(ctx))
             break;
 
         IO_STATUS_BLOCK_LOCAL iosb{};

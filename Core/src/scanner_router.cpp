@@ -46,10 +46,13 @@ bool RouterBeginScan(ScanContext* ctx, const wchar_t* path)
     // UNC paths go straight to dir_scanner; no MFT access possible.
     if (path[0] == L'\\' && path[1] == L'\\') {
         thread_proc = DirScanThread;
+        ctx->scanner_kind = SMON_SCANNER_DIRECTORY;
     } else if (RouterIsNtfs(path) && RouterIsElevated()) {
         thread_proc = MftScanThread;
+        ctx->scanner_kind = SMON_SCANNER_MFT;
     } else {
         thread_proc = DirScanThread;
+        ctx->scanner_kind = SMON_SCANNER_DIRECTORY;
     }
 
     // Store path in result so thread procs can read it.
