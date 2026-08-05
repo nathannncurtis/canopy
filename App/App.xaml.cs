@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
 using SizeMonitor.Helpers;
+using SizeMonitor.Interop;
 using Wpf.Ui.Appearance;
 using Wpf.Ui.Controls;
 
@@ -17,6 +18,26 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += OnDomainException;
 
         Logger.Info($"startup — OS {Environment.OSVersion}, .NET {Environment.Version}");
+
+        try
+        {
+            CoreCapabilities capabilities = CoreCapabilities.Read();
+            Logger.Info($"core ABI {capabilities.AbiVersion}, capabilities {capabilities.Flags}, " +
+                        $"limits {capabilities.MaxNodes:N0} nodes/{capabilities.MaxNameBytes:N0} name bytes");
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException
+                                      or BadImageFormatException or CoreCompatibilityException
+                                      or System.ComponentModel.Win32Exception)
+        {
+            Logger.Error("native core validation failed", ex);
+            System.Windows.MessageBox.Show(
+                $"Canopy cannot start because its native engine is missing or incompatible.\n\n" +
+                $"Keep Canopy.exe and Canopy.Core.dll from the same release together.\n\n{ex.Message}",
+                "Canopy", System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Error);
+            Shutdown(1);
+            return;
+        }
 
         var accent = Color.FromArgb(0xFF, 0x4C, 0x9D, 0xFF);
         ApplicationAccentColorManager.Apply(accent, ApplicationTheme.Dark, systemGlassColor: false, systemAccentColor: false);

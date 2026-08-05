@@ -13,6 +13,13 @@ internal static unsafe class Native
 {
     const string Dll = "Canopy.Core.dll";
 
+    [DllImport(Dll, ExactSpelling = true)]
+    internal static extern uint Smon_GetAbiVersion();
+
+    [DllImport(Dll, ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool Smon_GetCapabilities(ref SmonCapabilitiesNative capabilities);
+
     [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
     internal static extern IntPtr Smon_BeginScan(
         string                path,
