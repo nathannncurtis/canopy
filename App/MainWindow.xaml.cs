@@ -72,6 +72,7 @@ public partial class MainWindow : FluentWindow
         _statTimeSep.Visibility = Visibility.Collapsed;
         _statScannerSep.Visibility = Visibility.Collapsed;
         _statScanner.Text       = "";
+        _statVolume.Text        = "";
         _statCurrent.Text       = "Starting scan...";
         _scanProgress.Value     = 0;
         _scanProgress.IsIndeterminate = true;
@@ -178,10 +179,60 @@ public partial class MainWindow : FluentWindow
             : $"{targets.Count} targets ({mftCount} MFT, {directoryCount} directory)";
         _statScannerSep.Visibility = Visibility.Visible;
         _statCurrent.Text = "";
+        UpdateVolumeStatus(targets);
 
         _treeView?.Populate(result);
         _treemap?.SetRoot(result, 0);
         _searchView.SetResult(result);
+    }
+
+    void UpdateVolumeStatus(IReadOnlyList<TargetScanResult> targets)
+    {
+        try
+        {
+            VolumeStorageInfo[] volumes = targets
+                .Select(target => VolumeStorageInfo.Read(target.Path))
+                .GroupBy(volume => volume.RootPath, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToArray();
+            if (volumes.Length == 0) return;
+
+            if (volumes.Length == 1)
+            {
+                VolumeStorageInfo volume = volumes[0];
+                string identity = string.IsNullOrWhiteSpace(volume.Label)
+                    ? volume.RootPath
+                    : $"{volume.Label} ({volume.RootPath})";
+                _statVolume.Text =
+                    $"{identity} · {volume.FileSystem} · " +
+                    $"{SizeFormatter.FormatBytes(volume.UsedBytes)} used of " +
+                    $"{SizeFormatter.FormatBytes(volume.TotalBytes)} " +
+                    $"({SizeFormatter.FormatBytes(volume.FreeBytes)} free) · " +
+                    $"{SizeFormatter.FormatBytes(volume.ClusterSize)} clusters · " +
+                    $"serial {volume.SerialNumberText}";
+                return;
+            }
+
+            ulong total = SumSaturating(volumes.Select(volume => volume.TotalBytes));
+            ulong free = SumSaturating(volumes.Select(volume => volume.FreeBytes));
+            ulong used = total >= free ? total - free : 0;
+            _statVolume.Text =
+                $"{volumes.Length} volumes · {SizeFormatter.FormatBytes(used)} used of " +
+                $"{SizeFormatter.FormatBytes(total)} ({SizeFormatter.FormatBytes(free)} free)";
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("could not read volume information", ex);
+            _statVolume.Text = "Volume information unavailable";
+        }
+    }
+
+    static ulong SumSaturating(IEnumerable<ulong> values)
+    {
+        ulong total = 0;
+        foreach (ulong value in values)
+            total = ulong.MaxValue - total < value ? ulong.MaxValue : total + value;
+        return total;
     }
 
     static string[] ParsePaths(string text) => text

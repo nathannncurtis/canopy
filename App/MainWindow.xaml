@@ -78,6 +78,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Excluded paths/globs" VerticalAlignment="Center" />
@@ -183,6 +184,9 @@
                                   Margin="8,0,0,0" Appearance="Secondary"
                                   TextTrimming="CharacterEllipsis" />
                 </Grid>
+                <ui:TextBlock Grid.Row="2" x:Name="_statVolume"
+                              Margin="0,4,0,0" Appearance="Secondary"
+                              TextTrimming="CharacterEllipsis" />
             </Grid>
         </Border>
     </Grid>
