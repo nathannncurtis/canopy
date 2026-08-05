@@ -27,7 +27,9 @@ public sealed class InteropContractTests
         Assert.Equal(1u, CoreCapabilities.ExpectedAbiVersion);
         Assert.Equal(0x01ul, (ulong)CoreCapability.MftScanner);
         Assert.Equal(0x08ul, (ulong)CoreCapability.Avx2Assembly);
+        Assert.Equal(0x10ul, (ulong)CoreCapability.ScanOptions);
         Assert.Equal(24, Marshal.SizeOf<SmonCapabilitiesNative>());
+        Assert.Equal(IntPtr.Size == 8 ? 48 : 40, Marshal.SizeOf<SmonScanOptionsNative>());
     }
 
     [Fact]
@@ -67,5 +69,54 @@ public sealed class InteropContractTests
 
         Assert.Equal(5u, exception.NativeError);
         Assert.NotEmpty(exception.Message);
+    }
+
+    [Fact]
+    public void ScanOptionsTranslateToNativeContract()
+    {
+        var options = new ScanOptions
+        {
+            MaximumDepth = 3,
+            WorkerThreads = 4,
+            MinimumFileSize = 10,
+            MaximumFileSize = 20,
+            IncludeHidden = false,
+            IncludeReparsePoints = false,
+            ForceDirectoryScanner = true,
+            ExcludedPatterns = ["cache*", "obj\\*"],
+            ExcludedExtensions = ["tmp", ".log"],
+        };
+
+        options.Validate();
+        SmonScanOptionsNative native = options.ToNative((IntPtr)1, (IntPtr)2);
+
+        Assert.Equal((uint)Marshal.SizeOf<SmonScanOptionsNative>(), native.StructSize);
+        Assert.Equal(3u, native.MaxDepth);
+        Assert.Equal(4u, native.WorkerThreads);
+        Assert.Equal(10ul, native.MinimumFileSize);
+        Assert.Equal(20ul, native.MaximumFileSize);
+        Assert.True(native.Flags.HasFlag(SmonScanOptionFlags.ExcludeHidden));
+        Assert.True(native.Flags.HasFlag(SmonScanOptionFlags.ExcludeReparsePoints));
+        Assert.True(native.Flags.HasFlag(SmonScanOptionFlags.ForceDirectoryScanner));
+        Assert.Equal("cache*;obj\\*", options.BuildExcludedPatternList());
+        Assert.Equal("tmp;.log", options.BuildExcludedExtensionList());
+    }
+
+    [Fact]
+    public void ScanOptionsRejectInvalidRangesAndSeparators()
+    {
+        Assert.Throws<ArgumentException>(() => new ScanOptions
+        {
+            MinimumFileSize = 2,
+            MaximumFileSize = 1,
+        }.Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ScanOptions
+        {
+            WorkerThreads = 1025,
+        }.Validate());
+        Assert.Throws<ArgumentException>(() => new ScanOptions
+        {
+            ExcludedPatterns = ["one;two"],
+        }.Validate());
     }
 }

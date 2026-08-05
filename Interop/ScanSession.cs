@@ -15,7 +15,15 @@ public sealed class ScanSession : IDisposable
 
     // Starts the scan asynchronously; returns immediately.
     public static ScanSession Start(string path, IProgress<ScanProgress>? progress)
+        => Start(path, progress, null);
+
+    public static unsafe ScanSession Start(
+        string path,
+        IProgress<ScanProgress>? progress,
+        ScanOptions? options)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        options?.Validate();
         var session = new ScanSession();
 
         SmonProgressCallback? cb = null;
@@ -26,9 +34,26 @@ public sealed class ScanSession : IDisposable
         }
         session._callbackDelegate = cb;
 
-        session._handle = Native.Smon_BeginScan(path, cb, IntPtr.Zero);
+        if (options is null)
+        {
+            session._handle = Native.Smon_BeginScan(path, cb, IntPtr.Zero);
+        }
+        else
+        {
+            string? patterns = options.BuildExcludedPatternList();
+            string? extensions = options.BuildExcludedExtensionList();
+            fixed (char* patternPointer = patterns)
+            fixed (char* extensionPointer = extensions)
+            {
+                SmonScanOptionsNative nativeOptions = options.ToNative(
+                    (IntPtr)patternPointer,
+                    (IntPtr)extensionPointer);
+                session._handle = Native.Smon_BeginScanEx(
+                    path, ref nativeOptions, cb, IntPtr.Zero);
+            }
+        }
         if (session._handle == IntPtr.Zero)
-            throw new InvalidOperationException($"Smon_BeginScan failed for path: {path}");
+            throw new ScanException((uint)Marshal.GetLastPInvokeError(), path);
 
         session.State = ScanSessionState.Running;
 
@@ -137,8 +162,10 @@ public enum ScannerKind : uint
     Directory = 2,
 }
 
-public sealed class ScanException(uint nativeError)
-    : Exception(new System.ComponentModel.Win32Exception((int)nativeError).Message)
+public sealed class ScanException(uint nativeError, string? path = null)
+    : Exception(path is null
+        ? new System.ComponentModel.Win32Exception((int)nativeError).Message
+        : $"Could not scan '{path}': {new System.ComponentModel.Win32Exception((int)nativeError).Message}")
 {
     public uint NativeError { get; } = nativeError;
 }
