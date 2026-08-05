@@ -63,6 +63,21 @@ public sealed class InteropContractTests
     }
 
     [Fact]
+    public async Task MultiScanValidatesOptionsBeforeStartingTargets()
+    {
+        await using var session = new MultiScanSession();
+        var options = new ScanOptions
+        {
+            MinimumFileSize = 2,
+            MaximumFileSize = 1,
+        };
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            session.ScanAsync(["."], options: options,
+                cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public void ScanExceptionPreservesNativeError()
     {
         var exception = new ScanException(5);
