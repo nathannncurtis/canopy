@@ -11,6 +11,7 @@ public enum CoreCapability : ulong
     DirectoryScanner = 0x00000002,
     PauseResume = 0x00000004,
     Avx2Assembly = 0x00000008,
+    ScanOptions = 0x00000010,
 }
 
 [StructLayout(LayoutKind.Sequential)]
