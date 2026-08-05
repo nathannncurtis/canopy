@@ -30,9 +30,16 @@ public sealed class MultiScanSession : IAsyncDisposable
     public async Task<IReadOnlyList<TargetScanResult>> ScanAsync(
         IEnumerable<string> paths,
         IProgress<TargetScanProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ScanOptions? options = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        ScanOptions? scanOptions = options is null ? null : options with
+        {
+            ExcludedPatterns = options.ExcludedPatterns.ToArray(),
+            ExcludedExtensions = options.ExcludedExtensions.ToArray(),
+        };
+        scanOptions?.Validate();
         string[] targets = paths.Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (targets.Length == 0) throw new ArgumentException("At least one path is required.", nameof(paths));
@@ -55,7 +62,7 @@ public sealed class MultiScanSession : IAsyncDisposable
             {
                 var itemProgress = progress is null ? null : new Progress<ScanProgress>(value =>
                     progress.Report(new(path, value, Volatile.Read(ref completed), targets.Length)));
-                using var session = ScanSession.Start(path, itemProgress);
+                using var session = ScanSession.Start(path, itemProgress, scanOptions);
                 lock (_gate)
                 {
                     _active.Add(session);
