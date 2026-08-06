@@ -76,6 +76,35 @@ public sealed class ScanReportExporterTests
             : ScanReportExporter.ExportHtmlAsync(Example(), destination, cancellation.Token));
     }
 
+    [Fact]
+    public async Task XmlReplacesInvalidCharactersAndPreservesSupplementaryUnicode()
+    {
+        ScanResultManaged result = Result([Directory(0, None)], ["bad\u0001name 😀"]);
+        using var destination = new MemoryStream();
+        await ScanReportExporter.ExportXmlAsync(result, destination, TestContext.Current.CancellationToken);
+        XDocument document = XDocument.Parse(Encoding.UTF8.GetString(destination.ToArray()));
+        Assert.Equal("bad\uFFFDname 😀", document.Descendants("name").Single().Value);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RejectsNullOrMismatchedNodeAndNameTables(bool xml)
+    {
+        ScanResultManaged[] invalid =
+        [
+            new() { Nodes = [Directory(0, None)], Names = null! },
+            new() { Nodes = [Directory(0, None)], Names = [] },
+        ];
+        foreach (ScanResultManaged result in invalid)
+        {
+            using var destination = new MemoryStream();
+            await Assert.ThrowsAsync<ArgumentException>(() => xml
+                ? ScanReportExporter.ExportXmlAsync(result, destination, TestContext.Current.CancellationToken)
+                : ScanReportExporter.ExportHtmlAsync(result, destination, TestContext.Current.CancellationToken));
+        }
+    }
+
     static ScanResultManaged Example() => Result(
         [Directory(7, None), File(0, 0), File(7, 0)],
         ["資料 & <root>", "a\"b.txt", "é.txt"]);
