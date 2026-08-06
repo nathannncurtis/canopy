@@ -23,6 +23,11 @@ set_source_files_properties("${SIMD_OBJ}" PROPERTIES EXTERNAL_OBJECT TRUE GENERA
 # Keep the .asm in the source list for IDE visibility; skip the auto-pipeline.
 set_source_files_properties(asm/simd_sum.asm PROPERTIES HEADER_FILE_ONLY TRUE)
 
+# Own the generated MASM output in exactly one build target. Both consumers use
+# this target's object set, preventing parallel ml64 invocations on the same file.
+add_library(simd_sum_obj STATIC asm/simd_sum.cpp "${SIMD_OBJ}")
+target_include_directories(simd_sum_obj PRIVATE asm src)
+
 add_library(Canopy.Core SHARED
     src/api.cpp
     src/scanner_router.cpp
@@ -33,10 +38,9 @@ add_library(Canopy.Core SHARED
     src/size_rollup.cpp
     src/cpu_features.cpp
     src/scan_options.cpp
-    asm/simd_sum.cpp
     asm/simd_sum.asm
-    "${SIMD_OBJ}"
 )
+target_link_libraries(Canopy.Core PRIVATE simd_sum_obj)
 
 target_include_directories(Canopy.Core PRIVATE include)
 
@@ -87,9 +91,8 @@ add_test(NAME node_pool_contract COMMAND node_pool_test)
 add_executable(simd_sum_test
     test/simd_sum_test.cpp
     src/cpu_features.cpp
-    asm/simd_sum.cpp
-    "${SIMD_OBJ}"
 )
+target_link_libraries(simd_sum_test PRIVATE simd_sum_obj)
 target_include_directories(simd_sum_test PRIVATE asm src)
 target_compile_definitions(simd_sum_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 if(MSVC)

@@ -72,7 +72,7 @@ DWORD WINAPI MftScanThread(LPVOID param)
                                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                 nullptr,
                                 OPEN_EXISTING,
-                                FILE_FLAG_BACKUP_SEMANTICS,
+                                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
                                 nullptr);
     if (target == INVALID_HANDLE_VALUE) {
         ctx->error = GetLastError();
@@ -112,6 +112,29 @@ DWORD WINAPI MftScanThread(LPVOID param)
                              nullptr);
     if (vol == INVALID_HANDLE_VALUE) {
         ctx->error = GetLastError();
+        return 1;
+    }
+
+    wchar_t identity_root[4] = { vol_path[4], L':', L'\\', L'\0' };
+    HANDLE root_identity = CreateFileW(identity_root, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (root_identity == INVALID_HANDLE_VALUE) {
+        ctx->error = GetLastError();
+        CloseHandle(vol);
+        return 1;
+    }
+    BY_HANDLE_FILE_INFORMATION volume_info{};
+    if (!GetFileInformationByHandle(root_identity, &volume_info)) {
+        ctx->error = GetLastError();
+        CloseHandle(root_identity);
+        CloseHandle(vol);
+        return 1;
+    }
+    CloseHandle(root_identity);
+    if (target_info.dwVolumeSerialNumber != volume_info.dwVolumeSerialNumber) {
+        ctx->error = ERROR_NOT_SAME_DEVICE;
+        CloseHandle(vol);
         return 1;
     }
 
@@ -188,15 +211,15 @@ DWORD WINAPI MftScanThread(LPVOID param)
 
             if (ctx->pool.Full()) {
                 ctx->error = ERROR_INSUFFICIENT_BUFFER;
-                CloseHandle(vol);
-                return 1;
+                ctx->cancelled.store(true, std::memory_order_release);
+                break;
             }
 
             uint32_t idx = ctx->pool.AllocNode();
             if (idx == UINT32_MAX) {
                 ctx->error = ERROR_NOT_ENOUGH_MEMORY;
-                CloseHandle(vol);
-                return 1;
+                ctx->cancelled.store(true, std::memory_order_release);
+                break;
             }
             ScanNode* node = ctx->pool.NodeAt(idx);
 
@@ -207,8 +230,10 @@ DWORD WINAPI MftScanThread(LPVOID param)
             node->name_offset = ctx->pool.AppendName(name_ptr, name_len_chars);
             if (node->name_offset == UINT32_MAX) {
                 ctx->error = ERROR_NOT_ENOUGH_MEMORY;
-                CloseHandle(vol);
-                return 1;
+                node->name_offset = 0;
+                node->name_len = 0;
+                ctx->cancelled.store(true, std::memory_order_release);
+                break;
             }
             node->name_len    = name_len_chars;
 
@@ -281,19 +306,20 @@ DWORD WINAPI MftScanThread(LPVOID param)
     // MFT enumeration covers the full volume. Compact to the exact requested
     // file/directory before querying sizes so node 0 is deterministic and
     // unrelated files are neither opened nor returned.
-    if (!ctx->cancelled.load()) {
-        auto target_it = frn_map.find(target_frn);
-        if (target_it == frn_map.end()) {
-            ctx->error = ERROR_PATH_NOT_FOUND;
-            return 1;
-        }
-        DWORD compact_error = CompactSubtree(ctx->pool, target_it->second, frn_by_idx);
-        if (compact_error != ERROR_SUCCESS) {
-            ctx->error = compact_error;
-            return 1;
-        }
-        node_count = static_cast<uint32_t>(frn_by_idx.size());
+    auto target_it = frn_map.find(target_frn);
+    if (target_it == frn_map.end()) {
+        if (ctx->error.load() == ERROR_SUCCESS)
+            ctx->error = ctx->cancelled.load() ? ERROR_CANCELLED : ERROR_PATH_NOT_FOUND;
+        return 1;
     }
+    DWORD compact_error = CompactSubtree(ctx->pool, target_it->second, frn_by_idx);
+    if (compact_error != ERROR_SUCCESS) {
+        ctx->error = compact_error;
+        return 1;
+    }
+    node_count = static_cast<uint32_t>(frn_by_idx.size());
+    if (ctx->cancelled.load() && ctx->error.load() == ERROR_SUCCESS)
+        ctx->error = ERROR_CANCELLED;
 
     // Third pass: query on-disk allocation size for each file (non-directory) node.
     // USN_RECORD_V2 has no size field, so we must open each file by ID.

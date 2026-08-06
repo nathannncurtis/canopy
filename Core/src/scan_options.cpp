@@ -1,12 +1,13 @@
 #include "scan_options.h"
 #include <algorithm>
 #include <cwctype>
+#include <windows.h>
 
 static bool SameCharacter(wchar_t left, wchar_t right)
 {
     if ((left == L'/' || left == L'\\') && (right == L'/' || right == L'\\'))
         return true;
-    return towlower(left) == towlower(right);
+    return CompareStringOrdinal(&left, 1, &right, 1, TRUE) == CSTR_EQUAL;
 }
 
 bool GlobMatchInsensitive(std::wstring_view pattern, std::wstring_view value)
@@ -54,8 +55,9 @@ static std::vector<std::wstring> SplitList(std::wstring_view list, bool extensio
             start, end == std::wstring_view::npos ? list.size() - start : end - start));
         if (!item.empty()) {
             std::wstring normalized(item);
+            if (extensions && normalized.starts_with(L"*.")) normalized.erase(normalized.begin());
             if (extensions && normalized.front() != L'.') normalized.insert(normalized.begin(), L'.');
-            std::transform(normalized.begin(), normalized.end(), normalized.begin(), towlower);
+            if (!normalized.empty()) CharUpperBuffW(normalized.data(), static_cast<DWORD>(normalized.size()));
             values.push_back(std::move(normalized));
         }
         if (end == std::wstring_view::npos) break;
@@ -79,8 +81,16 @@ void ScanOptions::SetExcludedExtensions(std::wstring_view list)
 DWORD ScanOptions::Validate() const
 {
     if (minimum_file_size > maximum_file_size) return ERROR_INVALID_PARAMETER;
-    if (worker_threads > 1024) return ERROR_INVALID_PARAMETER;
+    if (worker_threads > 32) return ERROR_INVALID_PARAMETER;
     return ERROR_SUCCESS;
+}
+
+bool ScanOptions::HasConstrainingOptions() const
+{
+    return max_depth != UINT32_MAX || minimum_file_size != 0 ||
+        maximum_file_size != UINT64_MAX || !include_hidden || !include_system ||
+        !include_temporary || !include_reparse_points ||
+        !excluded_patterns.empty() || !excluded_extensions.empty();
 }
 
 bool ScanOptions::ShouldInclude(std::wstring_view relative_path,
@@ -107,9 +117,12 @@ bool ScanOptions::ShouldInclude(std::wstring_view relative_path,
         std::wstring extension = dot == std::wstring_view::npos
             ? std::wstring()
             : std::wstring(name.substr(dot));
-        std::transform(extension.begin(), extension.end(), extension.begin(), towlower);
-        if (std::binary_search(excluded_extensions.begin(), excluded_extensions.end(), extension))
-            return false;
+        for (const std::wstring& excluded : excluded_extensions) {
+            if (extension.size() == excluded.size() &&
+                CompareStringOrdinal(extension.data(), static_cast<int>(extension.size()),
+                    excluded.data(), static_cast<int>(excluded.size()), TRUE) == CSTR_EQUAL)
+                return false;
+        }
     }
     return true;
 }
