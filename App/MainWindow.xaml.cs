@@ -23,6 +23,10 @@ public partial class MainWindow : FluentWindow
     LocationHistoryStore?    _locationHistory;
     ShellItemActionsMenu?    _shellActionsMenu;
     bool                     _paused;
+    bool                     _scanInProgress;
+    bool                     _diagnosticsInProgress;
+    bool                     _synchronizingTreeSelection;
+    int                      _resultGeneration;
 
     public MainWindow()
     {
@@ -36,6 +40,7 @@ public partial class MainWindow : FluentWindow
         _treeView = new SizeTreeView();
         _treeHost.Child = _treeView;
         _treeView.NodeSelected += OnTreeNodeSelected;
+        _treeView.NodeActivated += OnTreeNodeActivated;
         _shellActionsMenu = new ShellItemActionsMenu();
         _shellActionsMenu.ActionFailed += OnShellActionFailed;
         _treeView.ContextMenu = _shellActionsMenu;
@@ -76,6 +81,7 @@ public partial class MainWindow : FluentWindow
         try
         {
             scanOptions = BuildScanOptions();
+            scanOptions?.Validate();
         }
         catch (Exception ex) when (ex is FormatException or ArgumentException)
         {
@@ -83,6 +89,8 @@ public partial class MainWindow : FluentWindow
             return;
         }
 
+        int generation          = ++_resultGeneration;
+        _scanInProgress         = true;
         _btnScan.IsEnabled      = false;
         _btnPause.IsEnabled     = true;
         _btnCancel.IsEnabled    = true;
@@ -105,6 +113,7 @@ public partial class MainWindow : FluentWindow
         _saveSnapshotMenuItem.IsEnabled = false;
         _exportMenuItem.IsEnabled = false;
         _openSnapshotMenuItem.IsEnabled = false;
+        _diagnosticsMenuItem.IsEnabled = false;
         _statCurrent.Text       = "Starting scan...";
         _scanProgress.Value     = 0;
         _scanProgress.IsIndeterminate = true;
@@ -136,14 +145,15 @@ public partial class MainWindow : FluentWindow
             _multiSession = new MultiScanSession(Math.Min(paths.Length, Math.Max(1, Environment.ProcessorCount / 2)));
             IReadOnlyList<TargetScanResult> targetResults =
                 await _multiSession.ScanAsync(paths, progress, _cts.Token, scanOptions);
-            _result = ScanResultCombiner.CombineTargets(targetResults);
+            ScanResultManaged result = ScanResultCombiner.CombineTargets(targetResults);
             if (_locationHistory is not null)
             {
                 foreach (string path in paths)
                     await _locationHistory.TouchAsync(path, cancellationToken: _cts.Token);
                 _locationHistoryView.RefreshLocations();
             }
-            OnScanComplete(_result, targetResults);
+            if (generation == _resultGeneration)
+                await OnScanCompleteAsync(result, targetResults, generation);
         }
         catch (OperationCanceledException)
         {
@@ -165,10 +175,14 @@ public partial class MainWindow : FluentWindow
         }
         finally
         {
+            _scanInProgress = false;
             _btnScan.IsEnabled   = true;
             _btnPause.IsEnabled  = false;
             _btnCancel.IsEnabled = false;
             _openSnapshotMenuItem.IsEnabled = true;
+            _saveSnapshotMenuItem.IsEnabled = _result is not null;
+            _exportMenuItem.IsEnabled = _result is { Nodes.Length: > 0 };
+            _diagnosticsMenuItem.IsEnabled = !_diagnosticsInProgress;
             _scanProgress.Visibility = Visibility.Collapsed;
             if (_multiSession is not null)
                 await _multiSession.DisposeAsync();
@@ -205,7 +219,7 @@ public partial class MainWindow : FluentWindow
         _cts?.Cancel();
     }
 
-    void OnScanComplete(ScanResultManaged result, IReadOnlyList<TargetScanResult> targets)
+    async Task OnScanCompleteAsync(ScanResultManaged result, IReadOnlyList<TargetScanResult> targets, int generation)
     {
         _targets = targets;
         _statSize.Text          = Helpers.SizeFormatter.FormatBytes(result.TotalBytes);
@@ -221,18 +235,26 @@ public partial class MainWindow : FluentWindow
         _statCurrent.Text = "";
         UpdateVolumeStatus(targets);
 
-        DisplayResult(result);
+        await DisplayResultAsync(result, generation);
     }
 
-    void DisplayResult(ScanResultManaged result)
+    async Task<bool> DisplayResultAsync(ScanResultManaged result, int generation)
     {
+        (ScanResultMetrics Metrics, ScanNavigation? Navigation) derived = await Task.Run(() =>
+        {
+            ScanResultMetrics metrics = ScanResultMetrics.Calculate(result);
+            ScanNavigation? navigation = result.Nodes.Length == 0
+                ? null
+                : new ScanNavigation(new ScanNavigationIndex(result));
+            return (metrics, navigation);
+        });
+        if (generation != _resultGeneration) return false;
+
         _result = result;
-        _metrics = ScanResultMetrics.Calculate(result);
+        _metrics = derived.Metrics;
+        _navigation = derived.Navigation;
         _treeView?.Populate(result);
         _searchView.SetResult(result);
-        _navigation = result.Nodes.Length == 0
-            ? null
-            : new ScanNavigation(new ScanNavigationIndex(result));
         _navigationBar.SetNavigation(_navigation);
         _emptyItemsView.SetResult(result);
         _distributionView.SetResult(result);
@@ -240,11 +262,12 @@ public partial class MainWindow : FluentWindow
         _saveSnapshotMenuItem.IsEnabled = true;
         _exportMenuItem.IsEnabled = hasNodes;
         _emptyState.Visibility = hasNodes ? Visibility.Collapsed : Visibility.Visible;
+        _treemap?.SetRoot(result, 0);
         if (hasNodes)
-        {
-            _treemap?.SetRoot(result, 0);
             ShowNodeMetrics(0);
-        }
+        else
+            _statSelection.Text = string.Empty;
+        return true;
     }
 
     void UpdateVolumeStatus(IReadOnlyList<TargetScanResult> targets)
@@ -359,12 +382,18 @@ public partial class MainWindow : FluentWindow
         if (_result == null) return;
         if (_shellActionsMenu is not null)
             _shellActionsMenu.ItemPath = ResolveFilesystemPath(nodeIndex);
-        _navigationBar.NavigateTo(nodeIndex);
         ShowNodeMetrics(nodeIndex);
         // Only navigate the treemap into directory nodes; selecting a file node
         // would produce an empty treemap (files have no children).
         if (((_result.Nodes[nodeIndex].Flags & ScanNodeFlags.Directory) != 0))
             _treemap?.SetRoot(_result, nodeIndex);
+    }
+
+    void OnTreeNodeActivated(uint nodeIndex)
+    {
+        if (_synchronizingTreeSelection) return;
+        _navigationBar.NavigateTo(nodeIndex);
+        ActivateNode(nodeIndex, selectTree: false);
     }
 
     void OnSearchNodeActivated(uint nodeIndex)
@@ -429,7 +458,7 @@ public partial class MainWindow : FluentWindow
         OnScan(_btnScan, new RoutedEventArgs());
     }
 
-    void ActivateNode(uint nodeIndex)
+    void ActivateNode(uint nodeIndex, bool selectTree = true)
     {
         if (_result is null || nodeIndex >= _result.Nodes.Length) return;
         ShowNodeMetrics(nodeIndex);
@@ -442,30 +471,41 @@ public partial class MainWindow : FluentWindow
             _treemap?.SetRoot(_result, navigationRoot);
             _contentTabs.SelectedIndex = 0;
         }
+        if (selectTree && _treeView is not null)
+        {
+            _synchronizingTreeSelection = true;
+            try { _treeView.SelectNode(nodeIndex); }
+            finally { _synchronizingTreeSelection = false; }
+        }
     }
 
     async void OnExport(object sender, RoutedEventArgs e)
     {
         if (_result is null) return;
+        ScanResultManaged result = _result;
+        int generation = _resultGeneration;
         _exportMenuItem.IsEnabled = false;
         _statCurrent.Text = "Exporting results...";
         try
         {
             var service = new ScanResultExportService();
-            ScanResultExportResult export = await service.ExportAsync(_result, this);
-            _statCurrent.Text = export.Status == ScanResultExportStatus.Saved
-                ? $"Exported {export.Format} to {export.Path}"
-                : "Export cancelled";
+            ScanResultExportResult export = await service.ExportAsync(result, this);
+            if (generation == _resultGeneration && ReferenceEquals(result, _result) && !_scanInProgress)
+                _statCurrent.Text = export.Status == ScanResultExportStatus.Saved
+                    ? $"Exported {export.Format} to {export.Path}"
+                    : "Export cancelled";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                       or InvalidDataException or NotSupportedException)
         {
             Logger.Error("result export failed", ex);
-            _statCurrent.Text = $"Export failed: {ex.Message}";
+            if (generation == _resultGeneration && !_scanInProgress)
+                _statCurrent.Text = $"Export failed: {ex.Message}";
         }
         finally
         {
-            _exportMenuItem.IsEnabled = _result is not null;
+            _scanInProgress = false;
+            _exportMenuItem.IsEnabled = _result is not null && !_scanInProgress;
         }
     }
 
@@ -494,11 +534,14 @@ public partial class MainWindow : FluentWindow
 
     async void OnOpenSnapshot(object sender, RoutedEventArgs e)
     {
+        int generation = ++_resultGeneration;
         _openSnapshotMenuItem.IsEnabled = false;
         try
         {
             ScanSnapshotOpenResult opened = await ScanSnapshotService.OpenAsync(this);
             if (opened is not ScanSnapshotOpenResult.Loaded loaded) return;
+            if (generation != _resultGeneration || _scanInProgress) return;
+            if (!await DisplayResultAsync(loaded.Result, generation)) return;
             _statSize.Text = SizeFormatter.FormatBytes(loaded.Result.TotalBytes);
             _statFiles.Text = $"{loaded.Result.FileCount:N0} files, {loaded.Result.DirCount:N0} dirs";
             _statTime.Text = $"{loaded.Result.ElapsedSec:F1}s saved scan";
@@ -507,35 +550,47 @@ public partial class MainWindow : FluentWindow
             _statScannerSep.Visibility = Visibility.Visible;
             _statVolume.Text = $"Opened {loaded.Path}";
             _statCurrent.Text = "";
-            DisplayResult(loaded.Result);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                       or InvalidDataException or NotSupportedException)
         {
             Logger.Error("snapshot open failed", ex);
-            _statCurrent.Text = $"Snapshot open failed: {ex.Message}";
+            if (generation == _resultGeneration && !_scanInProgress)
+                _statCurrent.Text = $"Snapshot open failed: {ex.Message}";
         }
         finally
         {
-            _openSnapshotMenuItem.IsEnabled = true;
+            _openSnapshotMenuItem.IsEnabled = !_scanInProgress;
+            _diagnosticsMenuItem.IsEnabled = !_diagnosticsInProgress;
         }
     }
 
     async void OnExportDiagnostics(object sender, RoutedEventArgs e)
     {
+        if (_diagnosticsInProgress || _scanInProgress) return;
+        _diagnosticsInProgress = true;
+        _diagnosticsMenuItem.IsEnabled = false;
+        int generation = _resultGeneration;
         try
         {
             var service = new DiagnosticBundleService();
             DiagnosticBundleSaveResult saved = await service.SaveAsync(this);
-            _statCurrent.Text = saved.Status == DiagnosticBundleSaveStatus.Saved
-                ? $"Saved redacted diagnostics to {saved.Path}"
-                : "Diagnostic export cancelled";
+            if (generation == _resultGeneration && !_scanInProgress)
+                _statCurrent.Text = saved.Status == DiagnosticBundleSaveStatus.Saved
+                    ? $"Saved redacted diagnostics to {saved.Path}"
+                    : "Diagnostic export cancelled";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                       or ArgumentException or NotSupportedException)
         {
             Logger.Error("diagnostic export failed", ex);
-            _statCurrent.Text = $"Diagnostic export failed: {ex.Message}";
+            if (generation == _resultGeneration && !_scanInProgress)
+                _statCurrent.Text = $"Diagnostic export failed: {ex.Message}";
+        }
+        finally
+        {
+            _diagnosticsInProgress = false;
+            _diagnosticsMenuItem.IsEnabled = !_scanInProgress;
         }
     }
 
