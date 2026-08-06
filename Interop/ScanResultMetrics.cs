@@ -56,7 +56,7 @@ public sealed class ScanResultMetrics
         {
             ScanNode node = result.Nodes[i];
             double parentPercentage = node.Parent == uint.MaxValue
-                ? (count == 0 ? 0d : 100d)
+                ? Percentage(node.Size, result.TotalBytes)
                 : Percentage(node.Size, result.Nodes[node.Parent].Size);
             metrics[i] = new(
                 files[i],
