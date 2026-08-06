@@ -12,6 +12,7 @@ public enum CoreCapability : ulong
     PauseResume = 0x00000004,
     Avx2Assembly = 0x00000008,
     ScanOptions = 0x00000010,
+    ErrorInfo = 0x00000020,
 }
 
 [StructLayout(LayoutKind.Sequential)]

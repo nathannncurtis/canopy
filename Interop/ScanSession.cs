@@ -10,8 +10,10 @@ public sealed class ScanSession : IDisposable
     readonly object _gate = new();
     int _nativeCalls;
     ScanSessionState _state = ScanSessionState.Created;
+    ScanErrorInfo? _lastErrorInfo;
 
     public ScanSessionState State { get { lock (_gate) return _state; } }
+    public ScanErrorInfo? LastErrorInfo { get { lock (_gate) return _lastErrorInfo; } }
     public ScannerKind Scanner
     {
         get
@@ -120,7 +122,10 @@ public sealed class ScanSession : IDisposable
         try
         {
             ScanResultNative native = default;
-            if (!Native.Smon_GetResult(handle, &native)) throw new ScanException(Native.Smon_GetError(handle));
+            bool succeeded = Native.Smon_GetResult(handle, &native);
+            ScanErrorInfo details = ScanErrorInfo.Read(handle);
+            lock (_gate) _lastErrorInfo = details;
+            if (!succeeded) throw new ScanException(details.Win32Error, errorInfo: details);
             return ScanResultManaged.FromNative(native);
         }
         finally { ReleaseHandle(); }
@@ -182,10 +187,68 @@ public sealed class ScanSession : IDisposable
 public enum ScanSessionState { Created, Running, Paused, Cancelling, Completed, Failed, Disposed }
 public enum ScannerKind : uint { Unknown = 0, Mft = 1, Directory = 2 }
 
-public sealed class ScanException(uint nativeError, string? path = null)
-    : Exception(path is null
-        ? new System.ComponentModel.Win32Exception((int)nativeError).Message
-        : $"Could not scan '{path}': {new System.ComponentModel.Win32Exception((int)nativeError).Message}")
+public enum ScanErrorCategory : uint
 {
-    public uint NativeError { get; } = nativeError;
+    None, Argument, Access, Io, Cancelled, Resource, Internal,
+}
+
+public enum ScanErrorStage : uint { None, Open, Enumerate, Build }
+
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+internal struct SmonErrorInfoNative
+{
+    public uint StructSize;
+    public uint Win32Error;
+    public ScanErrorCategory Category;
+    public ScanErrorStage Stage;
+    public uint AccessErrorCount;
+    public uint AccessWin32Error;
+    public uint PathLength;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 1024)] public string Path;
+}
+
+public sealed record ScanErrorInfo(
+    uint Win32Error,
+    ScanErrorCategory Category,
+    ScanErrorStage Stage,
+    uint AccessErrorCount,
+    uint AccessWin32Error,
+    string? Path)
+{
+    internal static ScanErrorInfo Read(IntPtr handle)
+    {
+        var native = new SmonErrorInfoNative
+        {
+            StructSize = checked((uint)Marshal.SizeOf<SmonErrorInfoNative>()),
+            Path = string.Empty,
+        };
+        if (!Native.Smon_GetErrorInfo(handle, ref native))
+            return new(Native.Smon_GetError(handle), ScanErrorCategory.None, ScanErrorStage.None, 0, 0, null);
+        string? path = native.PathLength == 0 ? null : native.Path;
+        return new(native.Win32Error, native.Category, native.Stage, native.AccessErrorCount,
+            native.AccessWin32Error, path);
+    }
+
+    public string WindowsMessage => Win32Error == 0
+        ? "The operation completed without a fatal Windows error."
+        : new System.ComponentModel.Win32Exception((int)Win32Error).Message;
+}
+
+public sealed class ScanException : Exception
+{
+    public ScanException(uint nativeError, string? path = null, ScanErrorInfo? errorInfo = null)
+        : base(BuildMessage(nativeError, errorInfo?.Path ?? path))
+    {
+        NativeError = nativeError;
+        ErrorInfo = errorInfo ?? new(nativeError, ScanErrorCategory.None, ScanErrorStage.None, 0, 0, path);
+    }
+
+    public uint NativeError { get; }
+    public ScanErrorInfo ErrorInfo { get; }
+
+    static string BuildMessage(uint error, string? path)
+    {
+        string detail = new System.ComponentModel.Win32Exception((int)error).Message;
+        return path is null ? detail : $"Could not scan '{path}': {detail}";
+    }
 }

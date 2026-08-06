@@ -100,6 +100,17 @@ public sealed class InteropContractTests
     }
 
     [Fact]
+    public void StructuredErrorInfoLayoutMatchesNativeAbi()
+    {
+        Assert.Equal(2076, Marshal.SizeOf<SmonErrorInfoNative>());
+        Assert.Equal(28, Marshal.OffsetOf<SmonErrorInfoNative>(nameof(SmonErrorInfoNative.Path)).ToInt32());
+        var details = new ScanErrorInfo(5, ScanErrorCategory.Access, ScanErrorStage.Open, 2, 5, @"C:\denied");
+        var exception = new ScanException(5, errorInfo: details);
+        Assert.Equal(details, exception.ErrorInfo);
+        Assert.Contains(@"C:\denied", exception.Message);
+    }
+
+    [Fact]
     public void ScanOptionsTranslateToNativeContract()
     {
         var options = new ScanOptions
