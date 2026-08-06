@@ -194,6 +194,10 @@
             <controls:ScanAnomaliesView x:Name="_anomaliesView"
                                         NodeActivated="OnAnomalyNodeActivated" />
           </TabItem>
+          <TabItem Header="Cleanup">
+            <controls:CleanupRulesView x:Name="_cleanupRulesView"
+                                       NodeActivated="OnCleanupNodeActivated" />
+          </TabItem>
           <TabItem Header="Duplicates">
             <controls:DuplicateFilesView x:Name="_duplicatesView"
                                          PathActivated="OnDuplicatePathActivated" />
