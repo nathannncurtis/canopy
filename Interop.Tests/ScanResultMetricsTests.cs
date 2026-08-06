@@ -40,9 +40,25 @@ public sealed class ScanResultMetricsTests
 
         ScanNodeMetrics root = ScanResultMetrics.Calculate(result)[0];
 
-        Assert.Equal(100d, root.PercentageOfParent);
+        Assert.Equal(0d, root.PercentageOfParent);
         Assert.Equal(0d, root.PercentageOfScan);
         Assert.Equal(0ul, root.AverageFileSize);
+    }
+
+    [Fact]
+    public void ParentlessNodesUseTheirShareOfTheWholeScan()
+    {
+        var result = new ScanResultManaged
+        {
+            Nodes = [Directory(25, uint.MaxValue), Directory(75, uint.MaxValue)],
+            Names = ["one", "two"],
+            TotalBytes = 100,
+        };
+
+        ScanResultMetrics metrics = ScanResultMetrics.Calculate(result);
+
+        Assert.Equal(25d, metrics[0].PercentageOfParent);
+        Assert.Equal(75d, metrics[1].PercentageOfParent);
     }
 
     [Fact]

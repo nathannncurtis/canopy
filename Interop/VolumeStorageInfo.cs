@@ -23,8 +23,8 @@ public sealed record VolumeStorageInfo(
         if (!VolumeNative.GetVolumePathName(path, root, root.Capacity))
             throw CreateException("resolve the volume", path);
 
-        if (!VolumeNative.GetDiskFreeSpaceEx(root.ToString(), out _,
-                out ulong totalBytes, out ulong freeBytes))
+        if (!VolumeNative.GetDiskFreeSpaceEx(root.ToString(), out ulong freeBytes,
+                out ulong totalBytes, out _))
             throw CreateException("read volume capacity", root.ToString());
 
         var label = new StringBuilder(256);
