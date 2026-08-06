@@ -48,6 +48,35 @@ public sealed class ScanResultExporterTests
     }
 
     [Theory]
+    [InlineData("=1+1")]
+    [InlineData("+cmd")]
+    [InlineData("-2")]
+    [InlineData("@SUM(A1)")]
+    [InlineData("\tformula")]
+    public async Task CsvNeutralizesSpreadsheetFormulasByDefault(string name)
+    {
+        ScanResultManaged result = SingleNode(name);
+        await using var output = new MemoryStream();
+
+        await ScanResultExporter.ExportCsvAsync(result, output, TestContext.Current.CancellationToken);
+
+        string csv = Encoding.UTF8.GetString(output.ToArray());
+        string escaped = ("'" + name).Replace("\"", "\"\"", StringComparison.Ordinal);
+        Assert.Contains($"0,\"{escaped}\",\"{escaped}\",0,0", csv);
+    }
+
+    [Fact]
+    public async Task CsvCanOptOutOfFormulaNeutralizationForExactAutomationData()
+    {
+        await using var output = new MemoryStream();
+
+        await ScanResultExporter.ExportCsvAsync(
+            SingleNode("=1+1"), output, TestContext.Current.CancellationToken, escapeFormulas: false);
+
+        Assert.Equal("index,path,name,size,flags\n0,=1+1,=1+1,0,0\n", Encoding.UTF8.GetString(output.ToArray()));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task RejectsMalformedParentTopology(bool cycle)
@@ -98,6 +127,12 @@ public sealed class ScanResultExporterTests
         FileCount = 1,
         DirCount = 2,
         ElapsedSec = 1.25,
+    };
+
+    static ScanResultManaged SingleNode(string name) => new()
+    {
+        Nodes = [Node(0, None, 0)],
+        Names = [name],
     };
 
     static ScanNode Node(ulong size, uint parent, uint flags) => new()
