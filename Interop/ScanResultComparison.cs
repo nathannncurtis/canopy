@@ -23,14 +23,16 @@ public sealed record DirectoryGrowth(string Path, ulong PreviousSize, ulong Curr
 public sealed class ScanComparisonResult
 {
     internal ScanComparisonResult(IReadOnlyList<ScanItemChange> changes,
-        IReadOnlyList<DirectoryGrowth> directoryGrowth)
+        IReadOnlyList<DirectoryGrowth> directoryGrowth, IReadOnlyList<string> ambiguousPaths)
     {
         Changes = changes;
         DirectoryGrowth = directoryGrowth;
+        AmbiguousPaths = ambiguousPaths;
     }
 
     public IReadOnlyList<ScanItemChange> Changes { get; }
     public IReadOnlyList<DirectoryGrowth> DirectoryGrowth { get; }
+    public IReadOnlyList<string> AmbiguousPaths { get; }
 
     public IReadOnlyList<DirectoryGrowth> GetFastestGrowingFolders(int maximum = 10)
     {
@@ -54,8 +56,8 @@ public static class ScanResultComparison
         ArgumentNullException.ThrowIfNull(current);
         var oldIndex = new ScanNavigationIndex(previous);
         var newIndex = new ScanNavigationIndex(current);
-        Dictionary<string, Entry> oldEntries = Build(previous, oldIndex, cancellationToken);
-        Dictionary<string, Entry> newEntries = Build(current, newIndex, cancellationToken);
+        Dictionary<string, Entry> oldEntries = Build(previous, oldIndex, cancellationToken, out string[] oldAmbiguous);
+        Dictionary<string, Entry> newEntries = Build(current, newIndex, cancellationToken, out string[] newAmbiguous);
         var changes = new List<ScanItemChange>();
         var removed = new List<Entry>();
         var added = new List<Entry>();
@@ -65,7 +67,12 @@ public static class ScanResultComparison
             cancellationToken.ThrowIfCancellationRequested();
             if (!newEntries.TryGetValue(path, out Entry newEntry))
                 removed.Add(oldEntry);
-            else if (!oldEntry.IsDirectory && !newEntry.IsDirectory && oldEntry.Size != newEntry.Size)
+            else if (oldEntry.IsDirectory != newEntry.IsDirectory)
+            {
+                removed.Add(oldEntry);
+                added.Add(newEntry);
+            }
+            else if (!oldEntry.IsDirectory && oldEntry.Size != newEntry.Size)
                 changes.Add(new(ScanChangeKind.Resized, newEntry.Path, oldEntry.Path,
                     oldEntry.Size, newEntry.Size, oldEntry.Index, newEntry.Index));
         }
@@ -93,7 +100,10 @@ public static class ScanResultComparison
             new ScanItemChange(ScanChangeKind.Added, x.Path, null, 0, x.Size, MissingNode, x.Index)));
 
         var growth = BuildDirectoryGrowth(oldEntries, newEntries, cancellationToken);
-        return new(changes.OrderBy(x => x.Path, PathComparer).ThenBy(x => x.Kind).ToArray(), growth);
+        string[] ambiguous = oldAmbiguous.Concat(newAmbiguous).Distinct(PathComparer)
+            .OrderBy(path => path, PathComparer).ToArray();
+        return new(changes.OrderBy(x => x.Path, PathComparer).ThenBy(x => x.Kind).ToArray(),
+            growth, ambiguous);
     }
 
     static IReadOnlyList<DirectoryGrowth> BuildDirectoryGrowth(Dictionary<string, Entry> previous,
@@ -118,17 +128,24 @@ public static class ScanResultComparison
     }
 
     static Dictionary<string, Entry> Build(ScanResultManaged result, ScanNavigationIndex index,
-        CancellationToken token)
+        CancellationToken token, out string[] ambiguousPaths)
     {
         var entries = new Dictionary<string, Entry>(PathComparer);
+        var ambiguous = new HashSet<string>(PathComparer);
         for (uint i = 0; i < result.Nodes.Length; i++)
         {
             token.ThrowIfCancellationRequested();
             ScanNode node = result.Nodes[i];
             string path = index.GetPath(i);
-            entries.Add(path, new(i, path, result.Names[i], node.Size,
-                (node.Flags & ScanNodeFlags.Directory) != 0, node.Flags));
+            if (ambiguous.Contains(path)) continue;
+            if (!entries.TryAdd(path, new(i, path, result.Names[i], node.Size,
+                    (node.Flags & ScanNodeFlags.Directory) != 0, node.Flags)))
+            {
+                entries.Remove(path);
+                ambiguous.Add(path);
+            }
         }
+        ambiguousPaths = ambiguous.OrderBy(path => path, PathComparer).ToArray();
         return entries;
     }
 

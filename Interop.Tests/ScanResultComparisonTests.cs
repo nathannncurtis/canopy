@@ -48,6 +48,32 @@ public sealed class ScanResultComparisonTests
     }
 
     [Fact]
+    public void AmbiguousPathsAreReportedAndExcludedFromMatching()
+    {
+        ScanResultManaged previous = Result(("root", None, 2, true), ("same", 0, 1, false),
+            ("same", 0, 1, false));
+        ScanComparisonResult result = ScanResultComparison.Compare(previous, previous,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([@"root\same"], result.AmbiguousPaths);
+        Assert.Empty(result.Changes);
+    }
+
+    [Fact]
+    public void TypeChangesAreReportedAsRemovalAndAddition()
+    {
+        ScanComparisonResult result = ScanResultComparison.Compare(
+            Result(("root", None, 4, true), ("cache", 0, 4, false)),
+            Result(("root", None, 12, true), ("cache", 0, 12, true)),
+            TestContext.Current.CancellationToken);
+
+        Assert.Contains(result.Changes, change => change.Kind == ScanChangeKind.Removed &&
+            change.Path == @"root\cache" && change.PreviousSize == 4);
+        Assert.Contains(result.Changes, change => change.Kind == ScanChangeKind.Added &&
+            change.Path == @"root\cache" && change.CurrentSize == 12);
+    }
+
+    [Fact]
     public void HonorsCancellationAndRejectsMalformedTopology()
     {
         using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
