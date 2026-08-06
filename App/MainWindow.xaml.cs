@@ -19,6 +19,7 @@ public partial class MainWindow : FluentWindow
     SizeTreeView?            _treeView;
     Treemap?                 _treemap;
     Stopwatch?               _scanClock;
+    LocationHistoryStore?    _locationHistory;
     bool                     _paused;
 
     public MainWindow()
@@ -39,13 +40,26 @@ public partial class MainWindow : FluentWindow
         _treemap.PathChanged += OnTreemapPathChanged;
     }
 
-    void OnLoaded(object sender, RoutedEventArgs e)
+    async void OnLoaded(object sender, RoutedEventArgs e)
     {
         // Hide elevation badge if running elevated.
         bool elevated = new WindowsPrincipal(WindowsIdentity.GetCurrent())
             .IsInRole(WindowsBuiltInRole.Administrator);
         _elevBadge.Visibility  = elevated ? Visibility.Collapsed : Visibility.Visible;
         _emptyState.Visibility = Visibility.Visible;
+        try
+        {
+            string historyPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "SizeMonitor", "locations.json");
+            _locationHistory = new LocationHistoryStore(historyPath);
+            await _locationHistoryView.SetStoreAsync(_locationHistory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                      or ArgumentException or InvalidDataException)
+        {
+            Logger.Error("could not load location history", ex);
+        }
     }
 
     async void OnScan(object sender, RoutedEventArgs e)
@@ -117,6 +131,12 @@ public partial class MainWindow : FluentWindow
             IReadOnlyList<TargetScanResult> targetResults =
                 await _multiSession.ScanAsync(paths, progress, _cts.Token, scanOptions);
             _result = ScanResultCombiner.CombineTargets(targetResults);
+            if (_locationHistory is not null)
+            {
+                foreach (string path in paths)
+                    await _locationHistory.TouchAsync(path, cancellationToken: _cts.Token);
+                _locationHistoryView.RefreshLocations();
+            }
             OnScanComplete(_result, targetResults);
         }
         catch (OperationCanceledException)
@@ -208,6 +228,7 @@ public partial class MainWindow : FluentWindow
             : new ScanNavigation(new ScanNavigationIndex(result));
         _navigationBar.SetNavigation(_navigation);
         _emptyItemsView.SetResult(result);
+        _distributionView.SetResult(result);
         bool hasNodes = result.Nodes.Length > 0;
         _saveSnapshotMenuItem.IsEnabled = true;
         _exportMenuItem.IsEnabled = hasNodes;
@@ -351,6 +372,13 @@ public partial class MainWindow : FluentWindow
         _navigationBar.NavigateTo(nodeIndex);
         ActivateNode(nodeIndex);
         _contentTabs.SelectedIndex = 0;
+    }
+
+    void OnHistoryPathActivated(string path)
+    {
+        _pathBox.Text = path;
+        _contentTabs.SelectedIndex = 0;
+        OnScan(_btnScan, new RoutedEventArgs());
     }
 
     void ActivateNode(uint nodeIndex)
