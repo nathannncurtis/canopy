@@ -80,6 +80,22 @@ if(MSVC)
 endif()
 add_test(NAME native_scan_contract COMMAND scan_test "${CMAKE_CURRENT_SOURCE_DIR}/test")
 
+add_executable(filesystem_corpus_test test/filesystem_corpus_test.cpp)
+target_include_directories(filesystem_corpus_test PRIVATE include)
+target_link_libraries(filesystem_corpus_test PRIVATE Canopy.Core)
+add_custom_command(TARGET filesystem_corpus_test POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "$<TARGET_FILE:Canopy.Core>"
+            "$<TARGET_FILE_DIR:filesystem_corpus_test>"
+    COMMENT "Copying Canopy.Core.dll beside filesystem_corpus_test"
+)
+target_compile_definitions(filesystem_corpus_test PRIVATE
+    UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+if(MSVC)
+    target_compile_options(filesystem_corpus_test PRIVATE /W4 /WX /utf-8)
+endif()
+add_test(NAME filesystem_correctness_corpus COMMAND filesystem_corpus_test)
+
 add_executable(node_pool_test test/node_pool_test.cpp src/node_pool.cpp src/tree_compactor.cpp)
 target_include_directories(node_pool_test PRIVATE include src)
 target_compile_definitions(node_pool_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX SMON_NODE_POOL_TESTING)
