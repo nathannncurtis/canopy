@@ -85,6 +85,61 @@ public sealed class ScanSnapshotStoreTests
     }
 
     [Fact]
+    public async Task RejectsImpossibleNodeCountBeforeAllocatingTables()
+    {
+        CancellationToken token = TestContext.Current.CancellationToken;
+        string path = TempPath();
+        try
+        {
+            await ScanSnapshotStore.SaveAsync(path, Result(), token);
+            byte[] bytes = await File.ReadAllBytesAsync(path, token);
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(12, 4), 4_000_000);
+            await File.WriteAllBytesAsync(path, bytes, token);
+            await Assert.ThrowsAsync<InvalidDataException>(() => ScanSnapshotStore.LoadAsync(path, token));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task ValidatesVeryDeepParentTopologyWithoutRecursion()
+    {
+        const int count = 20_000;
+        var nodes = new ScanNode[count];
+        var names = new string[count];
+        for (int i = 0; i < count; i++)
+        {
+            nodes[i] = new ScanNode
+            {
+                Parent = i == 0 ? None : (uint)(i - 1),
+                FirstChild = i + 1 < count ? (uint)(i + 1) : None,
+                NextSibling = None,
+            };
+            names[i] = "n";
+        }
+        string path = TempPath();
+        try
+        {
+            await ScanSnapshotStore.SaveAsync(path, new ScanResultManaged { Nodes = nodes, Names = names },
+                TestContext.Current.CancellationToken);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task RejectsSiblingCyclesAndInconsistentChildLinks()
+    {
+        ScanResultManaged cycle = Result();
+        cycle.Nodes[2] = cycle.Nodes[2] with { NextSibling = 2 };
+        await Assert.ThrowsAsync<InvalidDataException>(() => ScanSnapshotStore.SaveAsync(
+            TempPath(), cycle, TestContext.Current.CancellationToken));
+
+        ScanResultManaged mismatch = Result();
+        mismatch.Nodes[1] = mismatch.Nodes[1] with { FirstChild = None };
+        await Assert.ThrowsAsync<InvalidDataException>(() => ScanSnapshotStore.SaveAsync(
+            TempPath(), mismatch, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task CancellationDoesNotOverwriteTargetOrLeaveTemporaryFile()
     {
         string path = TempPath();
