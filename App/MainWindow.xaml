@@ -67,7 +67,7 @@
                     <Separator />
                     <MenuItem x:Name="_exportMenuItem" Header="_Export results..."
                               IsEnabled="False" Click="OnExport" />
-                    <MenuItem Header="Export _diagnostics..."
+                    <MenuItem x:Name="_diagnosticsMenuItem" Header="Export _diagnostics..."
                               Click="OnExportDiagnostics" />
                 </MenuItem>
             </Menu>
