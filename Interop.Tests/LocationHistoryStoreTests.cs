@@ -63,6 +63,7 @@ public sealed class LocationHistoryStoreTests
         await loaded.PinAsync(@"C:\文書", "文書", token);
         await loaded.UnpinAsync(@"C:\文書", token);
         Assert.NotEmpty(first);
+        Assert.Equal(first, await File.ReadAllBytesAsync(temp.Path, token));
     }
 
     [Fact]
@@ -74,6 +75,45 @@ public sealed class LocationHistoryStoreTests
         await Assert.ThrowsAsync<InvalidDataException>(() => new LocationHistoryStore(temp.Path).LoadAsync(token));
         await File.WriteAllTextAsync(temp.Path, "{\"Version\":99,\"Locations\":[]}", token);
         await Assert.ThrowsAsync<InvalidDataException>(() => new LocationHistoryStore(temp.Path).LoadAsync(token));
+    }
+
+    [Fact]
+    public async Task RejectsNullJsonEntryAsInvalidData()
+    {
+        using var temp = new TempFile();
+        await File.WriteAllTextAsync(
+            temp.Path, "{\"Version\":1,\"Locations\":[null]}", TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            new LocationHistoryStore(temp.Path).LoadAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData(@"\")]
+    [InlineData("//")]
+    [InlineData(@"\\\\")]
+    public async Task DegenerateRootsRoundTripWithNonemptyDisplayName(string path)
+    {
+        using var temp = new TempFile();
+        var store = new LocationHistoryStore(temp.Path);
+        await store.TouchAsync(path, cancellationToken: TestContext.Current.CancellationToken);
+
+        var loaded = new LocationHistoryStore(temp.Path);
+        await loaded.LoadAsync(TestContext.Current.CancellationToken);
+
+        Assert.False(string.IsNullOrWhiteSpace(Assert.Single(loaded.Locations).DisplayName));
+    }
+
+    [Fact]
+    public async Task SnapshotGetterDoesNotWaitForMutationGate()
+    {
+        using var temp = new TempFile();
+        var store = new LocationHistoryStore(temp.Path);
+        await store.TouchAsync(@"C:\Existing", cancellationToken: TestContext.Current.CancellationToken);
+
+        Task<IReadOnlyList<ScanLocation>> read = Task.Run(() => store.Locations);
+
+        Assert.Same(store.Locations, await read.WaitAsync(TimeSpan.FromSeconds(1)));
     }
 
     [Fact]

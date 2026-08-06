@@ -13,6 +13,7 @@ public sealed class LocationHistoryStore
     readonly int _recentLimit;
     readonly SemaphoreSlim _gate = new(1, 1);
     List<ScanLocation> _locations = [];
+    ScanLocation[] _snapshot = [];
 
     public LocationHistoryStore(string path, int recentLimit = 20)
     {
@@ -22,15 +23,8 @@ public sealed class LocationHistoryStore
         _recentLimit = recentLimit;
     }
 
-    public IReadOnlyList<ScanLocation> Locations
-    {
-        get
-        {
-            _gate.Wait();
-            try { return Order(_locations).ToArray(); }
-            finally { _gate.Release(); }
-        }
-    }
+    /// <summary>Returns the latest fully persisted immutable snapshot without blocking.</summary>
+    public IReadOnlyList<ScanLocation> Locations => Volatile.Read(ref _snapshot);
 
     public Task TouchAsync(string path, string? displayName = null,
         DateTimeOffset? usedUtc = null, CancellationToken cancellationToken = default) =>
@@ -96,24 +90,35 @@ public sealed class LocationHistoryStore
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync(cancellationToken);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!File.Exists(_path)) { _locations = []; return; }
+            if (!File.Exists(_path))
+            {
+                _locations = [];
+                PublishSnapshot(_locations);
+                return;
+            }
             var info = new FileInfo(_path);
             if (info.Length > MaxFileBytes) throw new InvalidDataException("Location history is too large.");
             await using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read,
                 16 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
             HistoryDocument? document;
-            try { document = await JsonSerializer.DeserializeAsync<HistoryDocument>(stream, cancellationToken: cancellationToken); }
+            try
+            {
+                document = await JsonSerializer.DeserializeAsync<HistoryDocument>(
+                    stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
             catch (JsonException ex) { throw new InvalidDataException("Location history JSON is invalid.", ex); }
             if (document is null || document.Version != SchemaVersion || document.Locations is null)
                 throw new InvalidDataException("Location history schema is unsupported.");
             if (document.Locations.Count > 10_000) throw new InvalidDataException("Location history has too many entries.");
             var loaded = new List<ScanLocation>(document.Locations.Count);
-            foreach (ScanLocation item in document.Locations)
+            foreach (ScanLocation? item in document.Locations)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (item is null)
+                    throw new InvalidDataException("Location history contains a null entry.");
                 string normalized;
                 try { normalized = NormalizeWindowsPath(item.Path); }
                 catch (ArgumentException ex) { throw new InvalidDataException("A saved location path is invalid.", ex); }
@@ -124,19 +129,21 @@ public sealed class LocationHistoryStore
             }
             Trim(loaded);
             _locations = loaded;
+            PublishSnapshot(loaded);
         }
         finally { _gate.Release(); }
     }
 
     async Task MutateAsync(Action<List<ScanLocation>> mutation, CancellationToken token)
     {
-        await _gate.WaitAsync(token);
+        await _gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
             var updated = new List<ScanLocation>(_locations);
             mutation(updated);
-            await SaveCoreAsync(updated, token);
+            await SaveCoreAsync(updated, token).ConfigureAwait(false);
             _locations = updated;
+            PublishSnapshot(updated);
         }
         finally { _gate.Release(); }
     }
@@ -152,11 +159,12 @@ public sealed class LocationHistoryStore
                 FileShare.None, 16 * 1024, FileOptions.Asynchronous))
             {
                 await JsonSerializer.SerializeAsync(stream,
-                    new HistoryDocument(SchemaVersion, Order(locations).ToList()), cancellationToken: token);
-                await stream.FlushAsync(token);
+                    new HistoryDocument(SchemaVersion, Order(locations).ToList()), cancellationToken: token)
+                    .ConfigureAwait(false);
+                await stream.FlushAsync(token).ConfigureAwait(false);
             }
             token.ThrowIfCancellationRequested();
-            await MoveWithRetryAsync(temporary, token);
+            await MoveWithRetryAsync(temporary, token).ConfigureAwait(false);
         }
         finally { try { File.Delete(temporary); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
     }
@@ -173,7 +181,7 @@ public sealed class LocationHistoryStore
             catch (Exception ex) when (attempt < 4 &&
                                        ex is IOException or UnauthorizedAccessException)
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(10 << attempt), token);
+                await Task.Delay(TimeSpan.FromMilliseconds(10 << attempt), token).ConfigureAwait(false);
             }
         }
     }
@@ -208,8 +216,15 @@ public sealed class LocationHistoryStore
     }
 
     static string? CleanDisplayName(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    static string DefaultName(string path) => path.Length == 3 && path[1] == ':'
-        ? path : path[(path.LastIndexOf('\\') + 1)..];
+    static string DefaultName(string path)
+    {
+        if (path.Length == 3 && path[1] == ':') return path;
+        string leaf = path[(path.LastIndexOf('\\') + 1)..];
+        return leaf.Length == 0 ? path : leaf;
+    }
+
+    void PublishSnapshot(IEnumerable<ScanLocation> locations) =>
+        Volatile.Write(ref _snapshot, Order(locations).ToArray());
 
     sealed record HistoryDocument(int Version, List<ScanLocation> Locations);
 }
