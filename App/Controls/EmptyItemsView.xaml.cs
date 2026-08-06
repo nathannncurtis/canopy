@@ -37,7 +37,7 @@ public partial class EmptyItemsView : UserControl
 
         if (result is null)
         {
-            _status.Text = "Run a scan to find empty items.";
+            _status.Text = "Run a scan, then explicitly select which uncertain candidates to include.";
             return;
         }
 
@@ -48,16 +48,29 @@ public partial class EmptyItemsView : UserControl
     {
         ScanResultManaged? result = _result;
         if (result is null) return;
+        var options = new EmptyItemFinderOptions
+        {
+            IncludeZeroAllocationFiles = _includeFiles.IsChecked == true,
+            AssumeCompleteUnfilteredDirectoryEnumeration = _includeDirectories.IsChecked == true,
+        };
+        if (!options.IncludeZeroAllocationFiles &&
+            !options.AssumeCompleteUnfilteredDirectoryEnumeration)
+        {
+            _status.Text = "Select a candidate type above; scan data alone cannot prove emptiness.";
+            _hasCompletedResult = false;
+            return;
+        }
         var cancellation = new CancellationTokenSource();
         CancellationToken token = cancellation.Token;
         _findCancellation = cancellation;
         long generation = Volatile.Read(ref _generation);
         _status.Text = $"Checking {result.Nodes.Length:N0} scan items...";
-        _ = FindAsync(result, cancellation, token, generation);
+        _ = FindAsync(result, options, cancellation, token, generation);
     }
 
     async Task FindAsync(
         ScanResultManaged result,
+        EmptyItemFinderOptions options,
         CancellationTokenSource cancellation,
         CancellationToken token,
         long generation)
@@ -65,7 +78,7 @@ public partial class EmptyItemsView : UserControl
         try
         {
             IReadOnlyList<EmptyScanItem> found = await Task.Run(
-                () => EmptyItemFinder.Find(result, token), token);
+                () => EmptyItemFinder.Find(result, options, token), token);
             if (generation != Volatile.Read(ref _generation) || token.IsCancellationRequested)
                 return;
 
@@ -98,6 +111,16 @@ public partial class EmptyItemsView : UserControl
     {
         if (_items is not null && _hasCompletedResult)
             ApplyFilter();
+    }
+
+    void OnTrustOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_items is null || _result is null) return;
+        CancelFind();
+        _hasCompletedResult = false;
+        _allItems = [];
+        _items.ItemsSource = null;
+        StartFind();
     }
 
     void ApplyFilter()

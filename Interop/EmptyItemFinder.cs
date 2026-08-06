@@ -26,14 +26,10 @@ public sealed record EmptyItemFinderOptions
     public bool AssumeCompleteUnfilteredDirectoryEnumeration { get; init; }
 }
 
-/// <summary>Finds empty files and directories in a completed scan result.</summary>
+/// <summary>Finds explicitly requested empty-item candidates in a completed scan result.</summary>
 public static class EmptyItemFinder
 {
     const uint NoNode = uint.MaxValue;
-
-    public static IReadOnlyList<EmptyScanItem> Find(
-        ScanResultManaged result,
-        CancellationToken cancellationToken) => Find(result, null, cancellationToken);
 
     /// <summary>
     /// Returns candidate unallocated files and/or childless directories according to
@@ -48,11 +44,11 @@ public static class EmptyItemFinder
     /// </remarks>
     public static IReadOnlyList<EmptyScanItem> Find(
         ScanResultManaged result,
-        EmptyItemFinderOptions? options = null,
+        EmptyItemFinderOptions options,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(result);
-        options ??= new EmptyItemFinderOptions();
+        ArgumentNullException.ThrowIfNull(options);
 
         int count = result.Nodes.Length;
         if (result.Names.Length != count)
@@ -147,7 +143,7 @@ public static class EmptyItemFinder
             uint nodeIndex = chain[i];
             string name = result.Names[nodeIndex]
                 ?? throw new InvalidDataException("The scan result contains a null node name.");
-            path = path.Length == 0 ? name : Path.Combine(path, name);
+            path = path.Length == 0 ? name : Path.Join(path, name);
             paths[nodeIndex] = path;
         }
 
