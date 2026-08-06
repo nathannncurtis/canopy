@@ -85,6 +85,8 @@ public static partial class DiagnosticBundle
         ArgumentNullException.ThrowIfNull(text);
         string redacted = DoubleQuotedWindowsPath().Replace(text, match =>
             string.Concat(match.Value.AsSpan(0, 1), Redaction, match.Value.AsSpan(match.Value.Length - 1)));
+        redacted = SingleQuotedWindowsPath().Replace(redacted, match =>
+            string.Concat(match.Value.AsSpan(0, 1), Redaction, match.Value.AsSpan(match.Value.Length - 1)));
         return UnquotedWindowsPath().Replace(redacted, Redaction);
     }
 
@@ -140,9 +142,12 @@ public static partial class DiagnosticBundle
     [GeneratedRegex("(?i)\"(?:[a-z]:\\\\|\\\\\\\\[^\\\\/\\r\\n\"]+\\\\[^\\\\/\\r\\n\"]+)[^\\r\\n\"]*\"", RegexOptions.CultureInvariant)]
     private static partial Regex DoubleQuotedWindowsPath();
 
-    // Default-safe redaction deliberately consumes prose after an unquoted path until
-    // a strong log delimiter. There is no reliable way to distinguish spaces inside a
-    // path from spaces after it, and over-redaction is preferable to leaking a suffix.
+    // Greedy-to-the-last-quote preserves apostrophes that are legal inside path segments.
+    [GeneratedRegex("(?i)'(?:[a-z]:\\\\|\\\\\\\\[^\\\\/\\r\\n']+\\\\[^\\\\/\\r\\n']+)[^\\r\\n]*'", RegexOptions.CultureInvariant)]
+    private static partial Regex SingleQuotedWindowsPath();
+
+    // Unquoted paths stop at punctuation delimiters. Because those characters are legal
+    // in filenames, callers should quote paths containing punctuation for complete redaction.
     // The UNC prefix accepts a share root without requiring a further path component.
     [GeneratedRegex("(?i)(?<![a-z0-9])(?:[a-z]:\\\\|\\\\\\\\[^\\\\/\\r\\n,;()\\[\\]]+\\\\[^\\\\/\\r\\n,;()\\[\\]]+)[^\\r\\n,;()\\[\\]]*", RegexOptions.CultureInvariant)]
     private static partial Regex UnquotedWindowsPath();
