@@ -23,7 +23,7 @@ public sealed class ScanResultQueryTests
             Result(), query, TestContext.Current.CancellationToken));
 
         Assert.Equal("report.txt", match.Name);
-        Assert.Equal(Path.Combine("root", "docs", "report.txt"), match.Path);
+        Assert.Equal(Path.Combine("root", "docs", "report.txt"), match.RelativePath);
         Assert.Equal(2, match.Depth);
         Assert.Equal(100, match.PercentOfParent);
         Assert.Equal(60, match.PercentOfTotal);
@@ -69,6 +69,55 @@ public sealed class ScanResultQueryTests
 
         Assert.Throws<ArgumentException>(() => ScanResultQuery.Search(
             Result(), query, TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("[")]
+    [InlineData("(.)\\1")]
+    public void ReportsInvalidOrBacktrackingRegexDistinctly(string pattern)
+    {
+        ScanQueryRegexException exception = Assert.Throws<ScanQueryRegexException>(() =>
+            ScanResultQuery.Search(Result(), new ScanQuery { RegexPattern = pattern },
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(pattern, exception.Pattern);
+    }
+
+    [Fact]
+    public void RelativePathJoinCannotDiscardItsStructuralPrefix()
+    {
+        ScanResultManaged result = Result();
+        result.Names[1] = @"C:\";
+
+        ScanSearchResult match = Assert.Single(ScanResultQuery.Search(result,
+            new ScanQuery { Text = "report" }, TestContext.Current.CancellationToken));
+
+        Assert.StartsWith($"root{Path.DirectorySeparatorChar}", match.RelativePath);
+        Assert.Contains(@"C:\", match.RelativePath);
+    }
+
+    [Fact]
+    public void CapsMaterializedResultsBeforeBroadQueriesGrowUnbounded()
+    {
+        IReadOnlyList<ScanSearchResult> matches = ScanResultQuery.Search(
+            Result(), new ScanQuery { Kinds = ScanItemKinds.All, ResultLimit = 2 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, matches.Count);
+    }
+
+    [Fact]
+    public void CombinedTopLevelUsesScanTotalWhenSyntheticRootHasNoSize()
+    {
+        ScanResultManaged result = Result();
+        ScanNode root = result.Nodes[0];
+        root.Size = 0;
+        result.Nodes[0] = root;
+
+        ScanSearchResult docs = Assert.Single(ScanResultQuery.Search(result,
+            new ScanQuery { Text = "docs" }, TestContext.Current.CancellationToken));
+
+        Assert.Equal(60d, docs.PercentOfParent);
     }
 
     [Fact]

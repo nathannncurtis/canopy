@@ -141,6 +141,11 @@ public sealed class ScanFilterPresetStore
         string name = preset.Name?.Trim() ?? string.Empty;
         if (name.Length is 0 or > 100)
             throw new ArgumentException("Preset names must contain 1 to 100 characters.", nameof(preset));
-        return preset with { Name = name };
+        ScanQuery query = preset.Query with
+        {
+            Extensions = preset.Query.Extensions ?? [],
+            Sort = preset.Query.Sort ?? [new(ScanSortField.Size, Descending: true)],
+        };
+        return preset with { Name = name, Query = query };
     }
 }
