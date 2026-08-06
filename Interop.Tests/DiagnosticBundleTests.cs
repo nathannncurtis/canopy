@@ -24,6 +24,34 @@ public sealed class DiagnosticBundleTests
         Assert.Equal(3, Count(redacted, "[REDACTED_PATH]"));
     }
 
+    [Theory]
+    [InlineData("Failed to read C:\\Users\\John Smith\\secret.txt", "Smith", "secret.txt")]
+    [InlineData("Could not open C:\\Users\\O'Brien\\notes.txt", "O'Brien", "notes.txt")]
+    [InlineData("scan failed: D:\\Client Files\\Acme v. Doe\\index.db", "Client Files", "index.db")]
+    [InlineData("Could not open \"C:\\Users\\O'Brien\\notes.txt\"", "O'Brien", "notes.txt")]
+    public void RedactsCompletePathsContainingSpacesAndApostrophes(
+        string log, string sensitiveSegment, string sensitiveFile)
+    {
+        string redacted = DiagnosticBundle.RedactPaths(log);
+
+        Assert.DoesNotContain(sensitiveSegment, redacted);
+        Assert.DoesNotContain(sensitiveFile, redacted);
+        Assert.Contains("[REDACTED_PATH]", redacted);
+    }
+
+    [Theory]
+    [InlineData("Cannot connect to \\\\fileserver\\patients", "fileserver", "patients")]
+    [InlineData("share unreachable: \\\\nas01\\Matter 1234", "nas01", "Matter 1234")]
+    [InlineData("\"\\\\fileserver\\patients\"", "fileserver", "patients")]
+    public void RedactsUncShareRoots(string log, string server, string share)
+    {
+        string redacted = DiagnosticBundle.RedactPaths(log);
+
+        Assert.DoesNotContain(server, redacted);
+        Assert.DoesNotContain(share, redacted);
+        Assert.Contains("[REDACTED_PATH]", redacted);
+    }
+
     [Fact]
     public async Task BundleHasStableEntriesManifestAndRedactedLogs()
     {
@@ -84,6 +112,45 @@ public sealed class DiagnosticBundleTests
             DiagnosticBundle.CreateAsync(input, output, TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task FileExportValidationFailurePreservesExistingTarget()
+    {
+        string path = TempPath();
+        await File.WriteAllTextAsync(path, "existing", TestContext.Current.CancellationToken);
+        try
+        {
+            DiagnosticBundleInput invalid = Input() with
+            {
+                LogText = new string('x', DiagnosticBundle.MaxLogBytes + 1),
+            };
+
+            await Assert.ThrowsAsync<ArgumentException>(() => DiagnosticBundle.CreateFileAsync(
+                invalid, path, TestContext.Current.CancellationToken));
+
+            Assert.Equal("existing", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+            Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.*.tmp"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task CancelledFileExportPreservesExistingTarget()
+    {
+        string path = TempPath();
+        await File.WriteAllTextAsync(path, "existing", TestContext.Current.CancellationToken);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                DiagnosticBundle.CreateFileAsync(Input(), path, cancellation.Token));
+
+            Assert.Equal("existing", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+            Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.*.tmp"));
+        }
+        finally { File.Delete(path); }
+    }
+
     static DiagnosticBundleInput Input() => new()
     {
         ApplicationVersion = "1.2.3",
@@ -102,4 +169,6 @@ public sealed class DiagnosticBundleTests
 
     static int Count(string text, string value) =>
         (text.Length - text.Replace(value, string.Empty, StringComparison.Ordinal).Length) / value.Length;
+
+    static string TempPath() => Path.Combine(Path.GetTempPath(), $"canopy-{Guid.NewGuid():N}.zip");
 }

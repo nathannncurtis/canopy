@@ -48,17 +48,42 @@ public static partial class DiagnosticBundle
         string path,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(input);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        await using var destination = new FileStream(
-            path, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        await CreateAsync(input, destination, cancellationToken).ConfigureAwait(false);
+        Validate(input);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        string destinationPath = Path.GetFullPath(path);
+        string directory = Path.GetDirectoryName(destinationPath)
+            ?? throw new InvalidOperationException("The bundle path has no parent directory.");
+        string temporaryPath = Path.Combine(
+            directory, $".{Path.GetFileName(destinationPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await using (var destination = new FileStream(
+                temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                await CreateAsync(input, destination, cancellationToken).ConfigureAwait(false);
+                await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+                destination.Flush(flushToDisk: true);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(temporaryPath, destinationPath, overwrite: true);
+        }
+        finally
+        {
+            try { File.Delete(temporaryPath); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
     }
 
     public static string RedactPaths(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        string redacted = QuotedWindowsPath().Replace(text, match =>
+        string redacted = DoubleQuotedWindowsPath().Replace(text, match =>
             string.Concat(match.Value.AsSpan(0, 1), Redaction, match.Value.AsSpan(match.Value.Length - 1)));
         return UnquotedWindowsPath().Replace(redacted, Redaction);
     }
@@ -111,11 +136,14 @@ public static partial class DiagnosticBundle
         await stream.WriteAsync(content, cancellationToken).ConfigureAwait(false);
     }
 
-    // Quoted form permits spaces while retaining the surrounding quote in the log.
-    [GeneratedRegex("(?i)([\"'])(?:[a-z]:\\\\|\\\\\\\\[^\\\\/\\r\\n\"']+\\\\[^\\\\/\\r\\n\"']+\\\\)[^\\r\\n\"']*\\1", RegexOptions.CultureInvariant)]
-    private static partial Regex QuotedWindowsPath();
+    // Double-quoted paths may safely contain spaces and apostrophes.
+    [GeneratedRegex("(?i)\"(?:[a-z]:\\\\|\\\\\\\\[^\\\\/\\r\\n\"]+\\\\[^\\\\/\\r\\n\"]+)[^\\r\\n\"]*\"", RegexOptions.CultureInvariant)]
+    private static partial Regex DoubleQuotedWindowsPath();
 
-    // Unquoted paths intentionally stop at whitespace and common log punctuation.
-    [GeneratedRegex("(?i)(?<![a-z0-9])(?:[a-z]:\\\\|\\\\\\\\[^\\\\/\\s\"'<>|]+\\\\[^\\\\/\\s\"'<>|]+\\\\)[^\\s\"'<>|,;()\\[\\]]+", RegexOptions.CultureInvariant)]
+    // Default-safe redaction deliberately consumes prose after an unquoted path until
+    // a strong log delimiter. There is no reliable way to distinguish spaces inside a
+    // path from spaces after it, and over-redaction is preferable to leaking a suffix.
+    // The UNC prefix accepts a share root without requiring a further path component.
+    [GeneratedRegex("(?i)(?<![a-z0-9])(?:[a-z]:\\\\|\\\\\\\\[^\\\\/\\r\\n,;()\\[\\]]+\\\\[^\\\\/\\r\\n,;()\\[\\]]+)[^\\r\\n,;()\\[\\]]*", RegexOptions.CultureInvariant)]
     private static partial Regex UnquotedWindowsPath();
 }
