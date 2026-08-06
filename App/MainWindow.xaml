@@ -184,6 +184,18 @@
             <controls:LocationHistoryView x:Name="_locationHistoryView"
                                           PathActivated="OnHistoryPathActivated" />
           </TabItem>
+          <TabItem Header="Compare">
+            <controls:ScanComparisonView x:Name="_comparisonView"
+                                         NodeActivated="OnComparisonNodeActivated" />
+          </TabItem>
+          <TabItem Header="Anomalies">
+            <controls:ScanAnomaliesView x:Name="_anomaliesView"
+                                        NodeActivated="OnAnomalyNodeActivated" />
+          </TabItem>
+          <TabItem Header="Duplicates">
+            <controls:DuplicateFilesView x:Name="_duplicatesView"
+                                         PathActivated="OnDuplicatePathActivated" />
+          </TabItem>
         </TabControl>
 
         <!-- Row 3: status bar -->
