@@ -20,10 +20,20 @@
                 <ComboBoxItem Content="Empty files" />
                 <ComboBoxItem Content="Empty directories" />
             </ComboBox>
+            <CheckBox x:Name="_includeFiles" Margin="16,0,0,0" VerticalAlignment="Center"
+                      Content="Include zero-allocation files" Checked="OnTrustOptionChanged"
+                      Unchecked="OnTrustOptionChanged"
+                      ToolTip="May include sparse, resident, or unreadable files whose logical size is not zero"
+                      AutomationProperties.Name="Include potentially nonempty zero-allocation files" />
+            <CheckBox x:Name="_includeDirectories" Margin="16,0,0,0" VerticalAlignment="Center"
+                      Content="Trust childless directories" Checked="OnTrustOptionChanged"
+                      Unchecked="OnTrustOptionChanged"
+                      ToolTip="Use only for a complete, unfiltered scan with no depth or access failures"
+                      AutomationProperties.Name="Assume childless directory nodes are empty" />
         </StackPanel>
 
         <TextBlock Grid.Row="1" x:Name="_status" Margin="0,0,0,8"
-                   Text="Run a scan to find empty items."
+                   Text="Run a scan, then explicitly select which uncertain candidates to include."
                    AutomationProperties.LiveSetting="Polite"
                    AutomationProperties.Name="Empty item search status" />
 

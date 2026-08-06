@@ -70,7 +70,8 @@ public sealed class EmptyItemFinderTests
         ScanResultManaged result = Result([File(0, 7)], ["bad"]);
 
         Assert.Throws<InvalidDataException>(() =>
-            EmptyItemFinder.Find(result, TestContext.Current.CancellationToken));
+            EmptyItemFinder.Find(result, new EmptyItemFinderOptions(),
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -81,7 +82,8 @@ public sealed class EmptyItemFinderTests
             ["one", "two"]);
 
         Assert.Throws<InvalidDataException>(() =>
-            EmptyItemFinder.Find(result, TestContext.Current.CancellationToken));
+            EmptyItemFinder.Find(result, new EmptyItemFinderOptions(),
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -99,7 +101,7 @@ public sealed class EmptyItemFinderTests
         cancellation.Cancel();
 
         Assert.Throws<OperationCanceledException>(() =>
-            EmptyItemFinder.Find(Result(nodes, names), cancellation.Token));
+            EmptyItemFinder.Find(Result(nodes, names), new EmptyItemFinderOptions(), cancellation.Token));
     }
 
     [Fact]
@@ -110,7 +112,32 @@ public sealed class EmptyItemFinderTests
             ["root", "resident.txt", "possibly-unreadable"]);
 
         Assert.Empty(EmptyItemFinder.Find(result,
-            cancellationToken: TestContext.Current.CancellationToken));
+            new EmptyItemFinderOptions(), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void FileTrustFlagOnlyReturnsZeroAllocationFiles()
+    {
+        ScanResultManaged result = CandidateResult();
+
+        IReadOnlyList<EmptyScanItem> items = EmptyItemFinder.Find(result,
+            new EmptyItemFinderOptions { IncludeZeroAllocationFiles = true },
+            TestContext.Current.CancellationToken);
+
+        EmptyScanItem item = Assert.Single(items);
+        Assert.Equal(3u, item.NodeIndex);
+        Assert.Equal(EmptyItemKind.File, item.Kind);
+    }
+
+    [Fact]
+    public void DirectoryTrustFlagOnlyReturnsChildlessDirectories()
+    {
+        IReadOnlyList<EmptyScanItem> items = EmptyItemFinder.Find(CandidateResult(),
+            new EmptyItemFinderOptions { AssumeCompleteUnfilteredDirectoryEnumeration = true },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([1u, 5u], items.Select(item => item.NodeIndex));
+        Assert.All(items, item => Assert.Equal(EmptyItemKind.Directory, item.Kind));
     }
 
     [Fact]
@@ -154,4 +181,11 @@ public sealed class EmptyItemFinderTests
         IncludeZeroAllocationFiles = true,
         AssumeCompleteUnfilteredDirectoryEnumeration = true,
     };
+
+    static ScanResultManaged CandidateResult() => Result(
+        [
+            Directory(12, None), Directory(0, 0), Directory(12, 0),
+            File(0, 2), File(12, 2), Directory(0, 2),
+        ],
+        ["root", "empty", "populated", "zero.dat", "data.dat", "nested-empty"]);
 }
