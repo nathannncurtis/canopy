@@ -16,10 +16,12 @@ public partial class MainWindow : FluentWindow
     ScanResultManaged?       _result;
     ScanResultMetrics?       _metrics;
     ScanNavigation?          _navigation;
+    IReadOnlyList<TargetScanResult> _targets = [];
     SizeTreeView?            _treeView;
     Treemap?                 _treemap;
     Stopwatch?               _scanClock;
     LocationHistoryStore?    _locationHistory;
+    ShellItemActionsMenu?    _shellActionsMenu;
     bool                     _paused;
 
     public MainWindow()
@@ -34,6 +36,9 @@ public partial class MainWindow : FluentWindow
         _treeView = new SizeTreeView();
         _treeHost.Child = _treeView;
         _treeView.NodeSelected += OnTreeNodeSelected;
+        _shellActionsMenu = new ShellItemActionsMenu();
+        _shellActionsMenu.ActionFailed += OnShellActionFailed;
+        _treeView.ContextMenu = _shellActionsMenu;
 
         _treemap = new Treemap();
         _treemapHost.Child = _treemap;
@@ -83,6 +88,7 @@ public partial class MainWindow : FluentWindow
         _btnCancel.IsEnabled    = true;
         _emptyState.Visibility  = Visibility.Collapsed;
         _result                 = null;
+        _targets                = [];
         _searchView.SetResult(null);
         _statSize.Text          = "Scanning...";
         _statFiles.Text         = "";
@@ -201,6 +207,7 @@ public partial class MainWindow : FluentWindow
 
     void OnScanComplete(ScanResultManaged result, IReadOnlyList<TargetScanResult> targets)
     {
+        _targets = targets;
         _statSize.Text          = Helpers.SizeFormatter.FormatBytes(result.TotalBytes);
         _statFiles.Text         = $"{result.FileCount:N0} files, {result.DirCount:N0} dirs";
         _statTime.Text          = $"{result.ElapsedSec:F1}s";
@@ -350,6 +357,8 @@ public partial class MainWindow : FluentWindow
     void OnTreeNodeSelected(uint nodeIndex)
     {
         if (_result == null) return;
+        if (_shellActionsMenu is not null)
+            _shellActionsMenu.ItemPath = ResolveFilesystemPath(nodeIndex);
         _navigationBar.NavigateTo(nodeIndex);
         ShowNodeMetrics(nodeIndex);
         // Only navigate the treemap into directory nodes; selecting a file node
@@ -362,6 +371,8 @@ public partial class MainWindow : FluentWindow
     {
         if (_result is null || nodeIndex >= _result.Nodes.Length) return;
         _navigationBar.NavigateTo(nodeIndex);
+        if (_shellActionsMenu is not null)
+            _shellActionsMenu.ItemPath = ResolveFilesystemPath(nodeIndex);
         ActivateNode(nodeIndex);
     }
 
@@ -369,9 +380,46 @@ public partial class MainWindow : FluentWindow
 
     void OnEmptyItemActivated(uint nodeIndex)
     {
+        if (_shellActionsMenu is not null)
+            _shellActionsMenu.ItemPath = ResolveFilesystemPath(nodeIndex);
         _navigationBar.NavigateTo(nodeIndex);
         ActivateNode(nodeIndex);
         _contentTabs.SelectedIndex = 0;
+    }
+
+    string? ResolveFilesystemPath(uint combinedNodeIndex)
+    {
+        if (combinedNodeIndex == 0 || _targets.Count == 0) return null;
+
+        uint blockStart = 1;
+        foreach (TargetScanResult target in _targets)
+        {
+            uint blockLength = checked((uint)target.Result.Nodes.Length);
+            if (combinedNodeIndex >= blockStart && combinedNodeIndex - blockStart < blockLength)
+            {
+                uint localIndex = combinedNodeIndex - blockStart;
+                var segments = new Stack<string>();
+                uint current = localIndex;
+                while (target.Result.Nodes[current].Parent != uint.MaxValue)
+                {
+                    segments.Push(target.Result.GetName(current));
+                    current = target.Result.Nodes[current].Parent;
+                }
+
+                string path = Path.GetFullPath(target.Path);
+                foreach (string segment in segments)
+                    path = Path.Combine(path, segment);
+                return path;
+            }
+            blockStart = checked(blockStart + blockLength);
+        }
+        return null;
+    }
+
+    void OnShellActionFailed(object? sender, ShellItemActionFailedEventArgs e)
+    {
+        Logger.Error($"{e.Action} failed for {e.ItemPath}", e.Exception);
+        _statCurrent.Text = $"{e.Action} failed: {e.Exception.Message}";
     }
 
     void OnHistoryPathActivated(string path)
