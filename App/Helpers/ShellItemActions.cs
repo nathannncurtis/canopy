@@ -4,14 +4,17 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
+using System.Windows.Interop;
 
 namespace SizeMonitor.Helpers;
 
 public static class ShellItemActions
 {
     const uint SeeMaskInvokeIdList = 0x0000000c;
+    const uint SeeMaskNoAsync = 0x00000100;
     const int SwShow = 5;
     const int ErrorFileNotFound = 2;
+    const int ErrorCancelled = 1223;
 
     public static void Open(string path)
     {
@@ -22,7 +25,7 @@ public static class ShellItemActions
     public static void OpenFile(string path)
     {
         ShellItem item = ResolveExisting(path);
-        if (item.IsDirectory)
+        if (item.Kind == ShellItemKind.Directory)
             throw new IOException($"The selected path is a directory, not a file: {item.Path}");
         Start(new ProcessStartInfo(item.Path) { UseShellExecute = true });
     }
@@ -30,7 +33,7 @@ public static class ShellItemActions
     public static void OpenFolder(string path)
     {
         ShellItem item = ResolveExisting(path);
-        if (!item.IsDirectory)
+        if (item.Kind == ShellItemKind.File)
             throw new IOException($"The selected path is a file, not a directory: {item.Path}");
         Start(new ProcessStartInfo(item.Path) { UseShellExecute = true });
     }
@@ -38,9 +41,13 @@ public static class ShellItemActions
     public static void OpenContainingFolder(string path)
     {
         ShellItem item = ResolveExisting(path);
-        var startInfo = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
-        startInfo.ArgumentList.Add("/select,");
-        startInfo.ArgumentList.Add(item.Path);
+        if (item.Path.Contains('"'))
+            throw new ArgumentException("Explorer cannot select a path containing a quote.", nameof(path));
+        var startInfo = new ProcessStartInfo("explorer.exe")
+        {
+            UseShellExecute = false,
+            Arguments = $"/select,\"{item.Path}\"",
+        };
         Start(startInfo);
     }
 
@@ -68,10 +75,21 @@ public static class ShellItemActions
     public static void ShowProperties(string path)
     {
         string fullPath = ResolveExisting(path).Path;
+        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => ShowProperties(fullPath));
+            return;
+        }
+        if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
+            throw new InvalidOperationException("Windows Properties requires the WPF dispatcher or an STA thread.");
+
         var info = new ShellExecuteInfo
         {
             cbSize = Marshal.SizeOf<ShellExecuteInfo>(),
-            fMask = SeeMaskInvokeIdList,
+            fMask = SeeMaskInvokeIdList | SeeMaskNoAsync,
+            hwnd = Application.Current?.MainWindow is { } window
+                ? new WindowInteropHelper(window).Handle
+                : IntPtr.Zero,
             lpVerb = "properties",
             lpFile = fullPath,
             nShow = SwShow,
@@ -84,7 +102,9 @@ public static class ShellItemActions
     public static void OpenElevatedTerminal(string path)
     {
         ShellItem item = ResolveExisting(path);
-        string directory = item.IsDirectory
+        if (item.Kind == ShellItemKind.Unknown)
+            throw new UnauthorizedAccessException($"Cannot determine whether the terminal path is a file or directory: {item.Path}");
+        string directory = item.Kind == ShellItemKind.Directory
             ? item.Path
             : Path.GetDirectoryName(item.Path)
                 ?? throw new IOException($"The file has no containing directory: {item.Path}");
@@ -105,12 +125,29 @@ public static class ShellItemActions
         catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorFileNotFound)
         {
             // Windows Terminal is optional; Windows PowerShell is available on supported Windows versions.
-            Start(new ProcessStartInfo("powershell.exe")
+            try
             {
-                UseShellExecute = true,
-                Verb = "runas",
-                WorkingDirectory = directory,
-            });
+                Start(new ProcessStartInfo("powershell.exe")
+                {
+                    UseShellExecute = true,
+                    Verb = "runas",
+                    WorkingDirectory = directory,
+                });
+            }
+            catch (Win32Exception fallback) when (fallback.NativeErrorCode == ErrorCancelled)
+            {
+                return;
+            }
+            catch (Exception fallback)
+            {
+                throw new InvalidOperationException(
+                    "Neither Windows Terminal nor Windows PowerShell could be started.",
+                    new AggregateException(ex, fallback));
+            }
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorCancelled)
+        {
+            return;
         }
     }
 
@@ -127,22 +164,38 @@ public static class ShellItemActions
             throw new ArgumentException("The shell item path is invalid.", nameof(path), ex);
         }
 
-        if (File.Exists(fullPath))
-            return new(fullPath, IsDirectory: false);
-        if (Directory.Exists(fullPath))
-            return new(fullPath, IsDirectory: true);
-        throw new FileNotFoundException($"The shell item does not exist: {fullPath}", fullPath);
+        try
+        {
+            FileAttributes attributes = File.GetAttributes(fullPath);
+            return new(fullPath, (attributes & FileAttributes.Directory) != 0
+                ? ShellItemKind.Directory
+                : ShellItemKind.File);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // The Windows shell can still select and show properties for ACL-restricted items.
+            return new(fullPath, ShellItemKind.Unknown);
+        }
+        catch (FileNotFoundException)
+        {
+            throw new FileNotFoundException($"The shell item does not exist: {fullPath}", fullPath);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            throw new FileNotFoundException($"The shell item does not exist: {fullPath}", fullPath);
+        }
     }
 
     static void Start(ProcessStartInfo startInfo)
     {
         Process? process = Process.Start(startInfo);
-        if (process is null)
+        if (process is null && !startInfo.UseShellExecute)
             throw new InvalidOperationException($"Windows did not start '{startInfo.FileName}'.");
-        process.Dispose();
+        process?.Dispose();
     }
 
-    readonly record struct ShellItem(string Path, bool IsDirectory);
+    enum ShellItemKind { Unknown, File, Directory }
+    readonly record struct ShellItem(string Path, ShellItemKind Kind);
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     struct ShellExecuteInfo
