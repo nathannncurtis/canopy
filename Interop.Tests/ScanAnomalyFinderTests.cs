@@ -17,7 +17,7 @@ public sealed class ScanAnomalyFinderTests
         {
             DeepHierarchyThreshold = 2,
             LongNameThreshold = 10,
-            LongPathThreshold = 14,
+            RelativePathLengthThreshold = 14,
         };
 
         IReadOnlyList<ScanAnomaly> anomalies = ScanAnomalyFinder.Find(
@@ -42,7 +42,8 @@ public sealed class ScanAnomalyFinderTests
     public void RecognizesWindowsTroublesomeNames(string name)
     {
         IReadOnlyList<ScanAnomaly> anomalies = ScanAnomalyFinder.Find(
-            Result([Node(None)], [name]), cancellationToken: TestContext.Current.CancellationToken);
+            Result([Node(None), Node(0)], ["root", name]),
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(anomalies, item => item.Kind == ScanAnomalyKind.TroublesomeWindowsName);
     }
@@ -54,13 +55,36 @@ public sealed class ScanAnomalyFinderTests
         {
             DeepHierarchyThreshold = 0,
             LongNameThreshold = 4,
-            LongPathThreshold = 4,
+            RelativePathLengthThreshold = 4,
         };
 
         IReadOnlyList<ScanAnomaly> anomalies = ScanAnomalyFinder.Find(
             Result([Node(None)], ["root"]), options, TestContext.Current.CancellationToken);
 
         Assert.Empty(anomalies);
+    }
+
+    [Fact]
+    public void DriveRootIsNotTreatedAsAWindowsFilenameComponent()
+    {
+        IReadOnlyList<ScanAnomaly> anomalies = ScanAnomalyFinder.Find(
+            Result([Node(None)], [@"C:\"]), cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(anomalies,
+            item => item.Kind == ScanAnomalyKind.TroublesomeWindowsName);
+    }
+
+    [Fact]
+    public void RootedNodeNameCannotDiscardTreePrefix()
+    {
+        var options = new ScanAnomalyOptions { DeepHierarchyThreshold = 0 };
+
+        ScanAnomaly anomaly = Assert.Single(ScanAnomalyFinder.Find(
+            Result([Node(None), Node(0)], ["Combined scan", @"C:\"]), options,
+            TestContext.Current.CancellationToken),
+            item => item.Kind == ScanAnomalyKind.DeepHierarchy);
+
+        Assert.StartsWith($"Combined scan{Path.DirectorySeparatorChar}", anomaly.Path);
     }
 
     [Fact]

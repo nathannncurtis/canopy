@@ -18,7 +18,8 @@ public sealed record ScanAnomalyOptions
 {
     public int DeepHierarchyThreshold { get; init; } = 32;
     public int LongNameThreshold { get; init; } = 255;
-    public int LongPathThreshold { get; init; } = 260;
+    /// <summary>Maximum scan-relative tree-path length; this is not a MAX_PATH check.</summary>
+    public int RelativePathLengthThreshold { get; init; } = 260;
 }
 
 /// <summary>
@@ -44,35 +45,44 @@ public static class ScanAnomalyFinder
             throw new ArgumentException("The result must have one name per node.", nameof(result));
 
         int count = result.Nodes.Length;
-        var paths = new string?[count];
         var depths = new int[count];
-        ValidateAndBuildPaths(result, paths, depths, cancellationToken);
+        var pathLengths = new int[count];
+        ValidateTopology(result, depths, pathLengths, cancellationToken);
 
         var anomalies = new List<ScanAnomaly>();
         for (uint index = 0; index < count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             string name = result.Names[index];
-            string path = paths[index]!;
-            if (depths[index] > options.DeepHierarchyThreshold)
+            bool deep = depths[index] > options.DeepHierarchyThreshold;
+            bool longName = name.Length > options.LongNameThreshold;
+            bool longPath = pathLengths[index] > options.RelativePathLengthThreshold;
+            string? problem = null;
+            bool troublesome = result.Nodes[index].Parent != NoNode &&
+                TryGetWindowsNameProblem(name, out problem);
+            if (!deep && !longName && !longPath && !troublesome) continue;
+
+            string path = ResolvePath(result, index, cancellationToken);
+            if (deep)
                 anomalies.Add(new(index, path, ScanAnomalyKind.DeepHierarchy,
                     $"Depth {depths[index]} exceeds {options.DeepHierarchyThreshold}."));
-            if (name.Length > options.LongNameThreshold)
+            if (longName)
                 anomalies.Add(new(index, path, ScanAnomalyKind.LongName,
                     $"Name length {name.Length} exceeds {options.LongNameThreshold}."));
-            if (path.Length > options.LongPathThreshold)
+            if (longPath)
                 anomalies.Add(new(index, path, ScanAnomalyKind.LongPath,
-                    $"Path length {path.Length} exceeds {options.LongPathThreshold}."));
-            if (TryGetWindowsNameProblem(name, out string? problem))
+                    $"Relative path length {pathLengths[index]} exceeds " +
+                    $"{options.RelativePathLengthThreshold}."));
+            if (troublesome)
                 anomalies.Add(new(index, path, ScanAnomalyKind.TroublesomeWindowsName, problem!));
         }
         return anomalies;
     }
 
-    static void ValidateAndBuildPaths(
+    static void ValidateTopology(
         ScanResultManaged result,
-        string?[] paths,
         int[] depths,
+        int[] pathLengths,
         CancellationToken token)
     {
         var states = new byte[result.Nodes.Length];
@@ -96,19 +106,33 @@ public static class ScanAnomalyFinder
                 current = result.Nodes[current].Parent;
             }
 
-            string path = current == NoNode ? string.Empty : paths[current]!;
             int depth = current == NoNode ? -1 : depths[current];
+            int pathLength = current == NoNode ? 0 : pathLengths[current];
             for (int i = chain.Count - 1; i >= 0; i--)
             {
                 uint index = chain[i];
                 string name = result.Names[index]
                     ?? throw new InvalidDataException("The scan result contains a null node name.");
-                path = path.Length == 0 ? name : Path.Combine(path, name);
-                paths[index] = path;
+                pathLength = checked(pathLength + (pathLength == 0 ? 0 : 1) + name.Length);
+                pathLengths[index] = pathLength;
                 depths[index] = ++depth;
                 states[index] = 2;
             }
         }
+    }
+
+    static string ResolvePath(ScanResultManaged result, uint index, CancellationToken token)
+    {
+        var names = new List<string>();
+        uint current = index;
+        while (current != NoNode)
+        {
+            token.ThrowIfCancellationRequested();
+            names.Add(result.Names[current]);
+            current = result.Nodes[current].Parent;
+        }
+        names.Reverse();
+        return Path.Join(names.ToArray());
     }
 
     static bool TryGetWindowsNameProblem(string name, out string? problem)
@@ -146,7 +170,7 @@ public static class ScanAnomalyFinder
             throw new ArgumentOutOfRangeException(nameof(options), "Depth threshold cannot be negative.");
         if (options.LongNameThreshold < 0)
             throw new ArgumentOutOfRangeException(nameof(options), "Name threshold cannot be negative.");
-        if (options.LongPathThreshold < 0)
+        if (options.RelativePathLengthThreshold < 0)
             throw new ArgumentOutOfRangeException(nameof(options), "Path threshold cannot be negative.");
     }
 

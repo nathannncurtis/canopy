@@ -45,6 +45,22 @@ public sealed class ScanResultQueryTests
     }
 
     [Fact]
+    public void SingleDotfilesFollowNoExtensionProductConvention()
+    {
+        var result = new ScanResultManaged
+        {
+            Nodes = [Node(1, None, None, None, 0), Node(1, None, None, None, 0)],
+            Names = [".gitignore", ".config.json"],
+            TotalBytes = 2,
+        };
+
+        Assert.Empty(ScanResultQuery.Search(result,
+            new ScanQuery { Extensions = ["gitignore"] }, TestContext.Current.CancellationToken));
+        Assert.Equal(".config.json", Assert.Single(ScanResultQuery.Search(result,
+            new ScanQuery { Extensions = ["json"] }, TestContext.Current.CancellationToken)).Name);
+    }
+
+    [Fact]
     public void AppliesStableMultiColumnSort()
     {
         var query = new ScanQuery
