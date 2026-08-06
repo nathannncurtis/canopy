@@ -44,8 +44,12 @@ public sealed record CoreCapabilities(
             StructSize = checked((uint)Marshal.SizeOf<SmonCapabilitiesNative>()),
         };
         if (!Native.Smon_GetCapabilities(ref native))
-            throw new Win32Exception(Marshal.GetLastPInvokeError(),
-                "Canopy.Core.dll did not return its capabilities.");
+        {
+            int error = Marshal.GetLastPInvokeError();
+            throw new Win32Exception(error,
+                $"Canopy.Core.dll did not return its capabilities (Win32 error {error}: " +
+                $"{new Win32Exception(error).Message}).");
+        }
         ValidateCompatibility(native.AbiVersion);
         if (native.StructSize < Marshal.SizeOf<SmonCapabilitiesNative>())
             throw new CoreCompatibilityException(
