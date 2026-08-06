@@ -111,6 +111,7 @@ public partial class MainWindow : FluentWindow
         if (_shellActionsMenu is not null) _shellActionsMenu.ItemPath = null;
         _saveSnapshotMenuItem.IsEnabled = false;
         _exportMenuItem.IsEnabled = false;
+        _copySummaryMenuItem.IsEnabled = false;
         _openSnapshotMenuItem.IsEnabled = false;
         _diagnosticsMenuItem.IsEnabled = false;
         _statCurrent.Text       = "Starting scan...";
@@ -215,6 +216,7 @@ public partial class MainWindow : FluentWindow
             _openSnapshotMenuItem.IsEnabled = true;
             _saveSnapshotMenuItem.IsEnabled = _result is not null;
             _exportMenuItem.IsEnabled = _result is { Nodes.Length: > 0 };
+            _copySummaryMenuItem.IsEnabled = _result is { Nodes.Length: > 0 };
             _diagnosticsMenuItem.IsEnabled = !_diagnosticsInProgress && !_scanInProgress;
             _scanProgress.Visibility = Visibility.Collapsed;
             if (_multiSession is not null)
@@ -312,6 +314,7 @@ public partial class MainWindow : FluentWindow
         bool hasNodes = result.Nodes.Length > 0;
         _saveSnapshotMenuItem.IsEnabled = true;
         _exportMenuItem.IsEnabled = hasNodes;
+        _copySummaryMenuItem.IsEnabled = hasNodes;
         _emptyState.Visibility = hasNodes ? Visibility.Collapsed : Visibility.Visible;
         _treemap?.SetRoot(result, 0);
         if (hasNodes)
@@ -596,6 +599,27 @@ public partial class MainWindow : FluentWindow
         finally
         {
             _exportMenuItem.IsEnabled = _result is not null && !_scanInProgress;
+        }
+    }
+
+    void OnCopySummary(object sender, RoutedEventArgs e)
+    {
+        if (_result is null) return;
+        try
+        {
+            string summary = ScanSummaryFormatter.Format(_result, options: new ScanSummaryOptions
+            {
+                Format = ScanSummaryFormat.Markdown,
+                IncludeSensitivePaths = false,
+            });
+            Clipboard.SetText(summary);
+            _statCurrent.Text = "Copied a privacy-safe scan summary.";
+        }
+        catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException
+                                      or System.Runtime.InteropServices.ExternalException)
+        {
+            Logger.Error("copy scan summary failed", ex);
+            _statCurrent.Text = $"Copy summary failed: {ex.Message}";
         }
     }
 
