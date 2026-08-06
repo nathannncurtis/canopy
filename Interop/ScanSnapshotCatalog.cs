@@ -49,6 +49,9 @@ public sealed class ScanSnapshotCatalog
         get { _gate.Wait(); try { return Ordered(_entries).ToArray(); } finally { _gate.Release(); } }
     }
 
+    public string DirectoryPath => _directory;
+    public SnapshotRetentionPolicy RetentionPolicy => _policy;
+
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
