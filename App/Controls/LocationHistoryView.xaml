@@ -1,0 +1,60 @@
+<UserControl x:Class="SizeMonitor.Controls.LocationHistoryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+
+        <ui:TextBox x:Name="_pathBox" Grid.Column="0" Height="32" Margin="0,0,8,8"
+                    PlaceholderText="Enter a folder path" ToolTip="Enter a path to open or favorite"
+                    AutomationProperties.Name="Location path" KeyDown="OnPathKeyDown" />
+        <ui:Button Grid.Column="1" Height="32" Margin="0,0,8,8" Content="Open"
+                   ToolTip="Open the entered location" AutomationProperties.Name="Open location"
+                   Click="OnOpen" />
+        <ui:Button x:Name="_pinButton" Grid.Column="2" Height="32" Margin="0,0,8,8"
+                   Content="Favorite" ToolTip="Add or remove this location from favorites"
+                   AutomationProperties.Name="Toggle favorite" Click="OnToggleFavorite" />
+        <ui:Button x:Name="_removeButton" Grid.Column="3" Height="32" Margin="0,0,0,8"
+                   Content="Remove" ToolTip="Remove this location from history"
+                   AutomationProperties.Name="Remove location" Click="OnRemove" />
+
+        <ui:TextBlock Grid.Row="1" Grid.ColumnSpan="4" Margin="0,0,0,8"
+                      Text="Favorites and recent locations" Appearance="Secondary" />
+
+        <ListView x:Name="_locations" Grid.Row="2" Grid.ColumnSpan="4"
+                  SelectionMode="Single" SelectionChanged="OnSelectionChanged"
+                  MouseDoubleClick="OnLocationDoubleClick" KeyDown="OnLocationKeyDown"
+                  AutomationProperties.Name="Favorite and recent locations">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="" Width="34">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding FavoriteMarker}" HorizontalAlignment="Center"
+                                           ToolTip="{Binding FavoriteDescription}" />
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="Name" Width="160" DisplayMemberBinding="{Binding DisplayName}" />
+                    <GridViewColumn Header="Path" Width="300" DisplayMemberBinding="{Binding Path}" />
+                    <GridViewColumn Header="Last used" Width="150" DisplayMemberBinding="{Binding LastUsed}" />
+                    <GridViewColumn Header="Uses" Width="60" DisplayMemberBinding="{Binding UseCount}" />
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <ui:TextBlock x:Name="_status" Grid.Row="3" Grid.ColumnSpan="4" Margin="0,8,0,0"
+                      Appearance="Secondary" AutomationProperties.LiveSetting="Polite" />
+    </Grid>
+</UserControl>
