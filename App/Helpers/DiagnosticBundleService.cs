@@ -29,7 +29,8 @@ public sealed class DiagnosticBundleService
         bool includeSensitivePaths = false,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        if (cancellationToken.IsCancellationRequested)
+            return new(DiagnosticBundleSaveStatus.Cancelled);
         var dialog = new SaveFileDialog
         {
             Title = "Save diagnostic bundle",
@@ -45,6 +46,8 @@ public sealed class DiagnosticBundleService
         if (accepted != true)
             return new(DiagnosticBundleSaveStatus.Cancelled);
 
+        string destination = Path.GetFullPath(dialog.FileName);
+        string temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -59,13 +62,27 @@ public sealed class DiagnosticBundleService
                 IncludeSensitivePaths = includeSensitivePaths,
             };
 
-            string destination = Path.GetFullPath(dialog.FileName);
-            await DiagnosticBundle.CreateFileAsync(input, destination, cancellationToken).ConfigureAwait(false);
+            await DiagnosticBundle.CreateFileAsync(input, temporary, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(temporary, destination, overwrite: true);
             return new(DiagnosticBundleSaveStatus.Saved, destination);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return new(DiagnosticBundleSaveStatus.Cancelled);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(temporary);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
         }
     }
 
@@ -120,6 +137,14 @@ public sealed class DiagnosticBundleService
         catch (DirectoryNotFoundException)
         {
             return string.Empty;
+        }
+        catch (IOException ex)
+        {
+            return $"[Log could not be read: {ex.Message}]";
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return $"[Log could not be read: {ex.Message}]";
         }
     }
 }
