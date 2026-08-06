@@ -92,6 +92,39 @@ public sealed class ScanFilterPresetStoreTests
         }
     }
 
+    [Fact]
+    public async Task ReportsSemanticallyInvalidJsonAsInvalidData()
+    {
+        string path = TemporaryPath();
+        await File.WriteAllTextAsync(path, "[{\"Name\":\"\",\"Query\":{}}]",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var store = new ScanFilterPresetStore(path);
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                store.LoadAsync(TestContext.Current.CancellationToken));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task LoadDeduplicatesNamesCaseInsensitivelyWithLastValueWinning()
+    {
+        string path = TemporaryPath();
+        await File.WriteAllTextAsync(path,
+            "[{\"Name\":\"Large\",\"Query\":{\"MinimumSize\":1}},{\"Name\":\"large\",\"Query\":{\"MinimumSize\":2}}]",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var store = new ScanFilterPresetStore(path);
+            IReadOnlyList<ScanFilterPreset> loaded =
+                await store.LoadAsync(TestContext.Current.CancellationToken);
+            Assert.Single(loaded);
+            Assert.Equal(2ul, loaded[0].Query.MinimumSize);
+        }
+        finally { File.Delete(path); }
+    }
+
     static string TemporaryPath() =>
         Path.Combine(Path.GetTempPath(), $"canopy-presets-{Guid.NewGuid():N}.json");
 }
