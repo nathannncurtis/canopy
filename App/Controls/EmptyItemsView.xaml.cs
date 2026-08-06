@@ -10,6 +10,8 @@ public partial class EmptyItemsView : UserControl
 {
     CancellationTokenSource? _findCancellation;
     IReadOnlyList<EmptyScanItem> _allItems = [];
+    ScanResultManaged? _result;
+    bool _hasCompletedResult;
     long _generation;
 
     public event Action<uint>? NodeActivated;
@@ -18,11 +20,18 @@ public partial class EmptyItemsView : UserControl
     {
         InitializeComponent();
         Unloaded += (_, _) => CancelFind();
+        Loaded += (_, _) =>
+        {
+            if (_result is not null && !_hasCompletedResult && _findCancellation is null)
+                StartFind();
+        };
     }
 
     public void SetResult(ScanResultManaged? result)
     {
         CancelFind();
+        _result = result;
+        _hasCompletedResult = false;
         _allItems = [];
         _items.ItemsSource = null;
 
@@ -32,6 +41,13 @@ public partial class EmptyItemsView : UserControl
             return;
         }
 
+        StartFind();
+    }
+
+    void StartFind()
+    {
+        ScanResultManaged? result = _result;
+        if (result is null) return;
         var cancellation = new CancellationTokenSource();
         CancellationToken token = cancellation.Token;
         _findCancellation = cancellation;
@@ -54,6 +70,7 @@ public partial class EmptyItemsView : UserControl
                 return;
 
             _allItems = found;
+            _hasCompletedResult = true;
             ApplyFilter();
         }
         catch (OperationCanceledException)
@@ -79,7 +96,7 @@ public partial class EmptyItemsView : UserControl
 
     void OnFilterChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_items is not null)
+        if (_items is not null && _hasCompletedResult)
             ApplyFilter();
     }
 

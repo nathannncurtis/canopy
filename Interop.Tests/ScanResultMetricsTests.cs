@@ -62,6 +62,23 @@ public sealed class ScanResultMetricsTests
     }
 
     [Fact]
+    public void SyntheticZeroSizedRootUsesAggregateTotal()
+    {
+        var result = new ScanResultManaged
+        {
+            Nodes = [Directory(0, uint.MaxValue), Directory(40, 0), File(40, 1), File(60, 0)],
+            Names = ["Combined scan", "target", "a", "b"],
+            TotalBytes = 100,
+        };
+
+        ScanResultMetrics metrics = ScanResultMetrics.Calculate(result);
+
+        Assert.Equal(100d, metrics[0].PercentageOfScan);
+        Assert.Equal(50ul, metrics[0].AverageFileSize);
+        Assert.Equal(40d, metrics[1].PercentageOfParent);
+    }
+
+    [Fact]
     public void RejectsForwardParentReferences()
     {
         var result = new ScanResultManaged
