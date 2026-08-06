@@ -15,10 +15,7 @@ public static class ScanResultQuery
         query ??= new ScanQuery();
         Validate(result, query);
 
-        Regex? regex = string.IsNullOrWhiteSpace(query.RegexPattern)
-            ? null
-            : new Regex(query.RegexPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-                TimeSpan.FromMilliseconds(250));
+        Regex? regex = CompileRegex(query.RegexPattern);
         HashSet<string> extensions = query.Extensions
             .Select(NormalizeExtension)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -36,7 +33,9 @@ public static class ScanResultQuery
                 continue;
 
             string path = ResolvePath(result, index, paths, depths);
-            ulong parentSize = node.Parent == NoNode ? result.TotalBytes : result.Nodes[node.Parent].Size;
+            ulong parentSize = node.Parent == NoNode || result.Nodes[node.Parent].Size == 0
+                ? result.TotalBytes
+                : result.Nodes[node.Parent].Size;
             matches.Add(new ScanSearchResult(
                 index,
                 name,
@@ -46,6 +45,7 @@ public static class ScanResultQuery
                 Percentage(node.Size, parentSize),
                 Percentage(node.Size, result.TotalBytes),
                 node.Flags));
+            if (matches.Count == query.ResultLimit) break;
         }
 
         return Sort(matches, query.Sort);
@@ -96,7 +96,7 @@ public static class ScanResultQuery
         {
             ScanSortField.Name => Order(source, subsequent, term.Descending, item => item.Name,
                 StringComparer.OrdinalIgnoreCase),
-            ScanSortField.Path => Order(source, subsequent, term.Descending, item => item.Path,
+            ScanSortField.Path => Order(source, subsequent, term.Descending, item => item.RelativePath,
                 StringComparer.OrdinalIgnoreCase),
             ScanSortField.Size => Order(source, subsequent, term.Descending, item => item.Size),
             ScanSortField.Depth => Order(source, subsequent, term.Descending, item => item.Depth),
@@ -151,7 +151,10 @@ public static class ScanResultQuery
         for (int i = chain.Count - 1; i >= 0; i--)
         {
             uint nodeIndex = chain[i];
-            path = path.Length == 0 ? result.Names[nodeIndex] : Path.Combine(path, result.Names[nodeIndex]);
+            string name = result.Names[nodeIndex];
+            path = path.Length == 0
+                ? name
+                : string.Concat(path, Path.DirectorySeparatorChar, name);
             depth++;
             paths[nodeIndex] = path;
             depths[nodeIndex] = depth;
@@ -165,11 +168,28 @@ public static class ScanResultQuery
             throw new ArgumentException("The result must have one name per node.", nameof(result));
         if (query.MinimumSize > query.MaximumSize)
             throw new ArgumentException("Minimum size cannot exceed maximum size.", nameof(query));
+        if (query.ResultLimit is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(query), "Result limit must be positive.");
         for (int i = 0; i < result.Nodes.Length; i++)
         {
             uint parent = result.Nodes[i].Parent;
             if (parent != NoNode && parent >= result.Nodes.Length)
                 throw new InvalidDataException("The scan result contains an invalid parent index.");
+        }
+    }
+
+    static Regex? CompileRegex(string? pattern)
+    {
+        if (string.IsNullOrWhiteSpace(pattern)) return null;
+        try
+        {
+            return new Regex(pattern,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
+                TimeSpan.FromMilliseconds(250));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+        {
+            throw new ScanQueryRegexException(pattern, ex);
         }
     }
 

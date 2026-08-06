@@ -125,6 +125,24 @@ public sealed class ScanFilterPresetStoreTests
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public async Task LoadRepairsNullableQueryCollections()
+    {
+        string path = TemporaryPath();
+        await File.WriteAllTextAsync(path,
+            "[{\"Name\":\"Portable\",\"Query\":{\"Extensions\":null,\"Sort\":null}}]",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            ScanFilterPreset preset = Assert.Single(await new ScanFilterPresetStore(path)
+                .LoadAsync(TestContext.Current.CancellationToken));
+
+            Assert.Empty(preset.Query.Extensions);
+            Assert.NotEmpty(preset.Query.Sort);
+        }
+        finally { File.Delete(path); }
+    }
+
     static string TemporaryPath() =>
         Path.Combine(Path.GetTempPath(), $"canopy-presets-{Guid.NewGuid():N}.json");
 }

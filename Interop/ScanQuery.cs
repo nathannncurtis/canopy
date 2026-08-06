@@ -33,12 +33,22 @@ public sealed record ScanQuery
     public uint ExcludedFlags { get; init; }
     public IReadOnlyList<ScanSortTerm> Sort { get; init; } =
         [new(ScanSortField.Size, Descending: true)];
+    public int? ResultLimit { get; init; }
+}
+
+public sealed class ScanQueryRegexException : FormatException
+{
+    public ScanQueryRegexException(string pattern, Exception innerException)
+        : base($"The regular expression is invalid: {innerException.Message}", innerException) =>
+        Pattern = pattern;
+
+    public string Pattern { get; }
 }
 
 public sealed record ScanSearchResult(
     uint NodeIndex,
     string Name,
-    string Path,
+    string RelativePath,
     ulong Size,
     int Depth,
     double PercentOfParent,
