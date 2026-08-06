@@ -36,9 +36,10 @@ public static class ByteSizeParser
         string numberPart = value[..unitStart].Trim();
         string unitPart = value[unitStart..].Trim();
         if (!Multipliers.TryGetValue(unitPart, out decimal multiplier)) return false;
-        if (!decimal.TryParse(numberPart, NumberStyles.Number, CultureInfo.CurrentCulture,
+        const NumberStyles styles = NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint;
+        if (!decimal.TryParse(numberPart, styles, CultureInfo.CurrentCulture,
                 out decimal number) &&
-            !decimal.TryParse(numberPart, NumberStyles.Number, CultureInfo.InvariantCulture,
+            !decimal.TryParse(numberPart, styles, CultureInfo.InvariantCulture,
                 out number)) return false;
         if (number < 0) return false;
 

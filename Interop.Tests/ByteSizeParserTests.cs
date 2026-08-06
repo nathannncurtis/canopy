@@ -21,6 +21,8 @@ public sealed class ByteSizeParserTests
     [InlineData("-1 MB")]
     [InlineData("12 elephants")]
     [InlineData("999999999999999999999999999 PB")]
+    [InlineData("1,000 B")]
+    [InlineData("1,2,3 MB")]
     public void RejectsInvalidSizes(string? text) =>
         Assert.False(ByteSizeParser.TryParse(text, out _));
 
