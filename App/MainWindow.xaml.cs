@@ -68,6 +68,7 @@ public partial class MainWindow : FluentWindow
         _btnPause.IsEnabled     = true;
         _btnCancel.IsEnabled    = true;
         _emptyState.Visibility  = Visibility.Collapsed;
+        _result                 = null;
         _searchView.SetResult(null);
         _statSize.Text          = "Scanning...";
         _statFiles.Text         = "";
@@ -81,7 +82,9 @@ public partial class MainWindow : FluentWindow
         _navigation             = null;
         _navigationBar.SetNavigation(null);
         _emptyItemsView.SetResult(null);
-        _btnExport.IsEnabled    = false;
+        _saveSnapshotMenuItem.IsEnabled = false;
+        _exportMenuItem.IsEnabled = false;
+        _openSnapshotMenuItem.IsEnabled = false;
         _statCurrent.Text       = "Starting scan...";
         _scanProgress.Value     = 0;
         _scanProgress.IsIndeterminate = true;
@@ -139,6 +142,7 @@ public partial class MainWindow : FluentWindow
             _btnScan.IsEnabled   = true;
             _btnPause.IsEnabled  = false;
             _btnCancel.IsEnabled = false;
+            _openSnapshotMenuItem.IsEnabled = true;
             _scanProgress.Visibility = Visibility.Collapsed;
             if (_multiSession is not null)
                 await _multiSession.DisposeAsync();
@@ -177,7 +181,6 @@ public partial class MainWindow : FluentWindow
 
     void OnScanComplete(ScanResultManaged result, IReadOnlyList<TargetScanResult> targets)
     {
-        _metrics = ScanResultMetrics.Calculate(result);
         _statSize.Text          = Helpers.SizeFormatter.FormatBytes(result.TotalBytes);
         _statFiles.Text         = $"{result.FileCount:N0} files, {result.DirCount:N0} dirs";
         _statTime.Text          = $"{result.ElapsedSec:F1}s";
@@ -191,16 +194,29 @@ public partial class MainWindow : FluentWindow
         _statCurrent.Text = "";
         UpdateVolumeStatus(targets);
 
+        DisplayResult(result);
+    }
+
+    void DisplayResult(ScanResultManaged result)
+    {
+        _result = result;
+        _metrics = ScanResultMetrics.Calculate(result);
         _treeView?.Populate(result);
-        _treemap?.SetRoot(result, 0);
         _searchView.SetResult(result);
         _navigation = result.Nodes.Length == 0
             ? null
             : new ScanNavigation(new ScanNavigationIndex(result));
         _navigationBar.SetNavigation(_navigation);
         _emptyItemsView.SetResult(result);
-        _btnExport.IsEnabled = result.Nodes.Length > 0;
-        if (result.Nodes.Length > 0) ShowNodeMetrics(0);
+        bool hasNodes = result.Nodes.Length > 0;
+        _saveSnapshotMenuItem.IsEnabled = true;
+        _exportMenuItem.IsEnabled = hasNodes;
+        _emptyState.Visibility = hasNodes ? Visibility.Collapsed : Visibility.Visible;
+        if (hasNodes)
+        {
+            _treemap?.SetRoot(result, 0);
+            ShowNodeMetrics(0);
+        }
     }
 
     void UpdateVolumeStatus(IReadOnlyList<TargetScanResult> targets)
@@ -355,7 +371,7 @@ public partial class MainWindow : FluentWindow
     async void OnExport(object sender, RoutedEventArgs e)
     {
         if (_result is null) return;
-        _btnExport.IsEnabled = false;
+        _exportMenuItem.IsEnabled = false;
         _statCurrent.Text = "Exporting results...";
         try
         {
@@ -373,7 +389,77 @@ public partial class MainWindow : FluentWindow
         }
         finally
         {
-            _btnExport.IsEnabled = _result is not null;
+            _exportMenuItem.IsEnabled = _result is not null;
+        }
+    }
+
+    async void OnSaveSnapshot(object sender, RoutedEventArgs e)
+    {
+        if (_result is null) return;
+        _saveSnapshotMenuItem.IsEnabled = false;
+        try
+        {
+            ScanSnapshotSaveResult saved = await ScanSnapshotService.SaveAsync(_result, this);
+            _statCurrent.Text = saved is ScanSnapshotSaveResult.Saved completed
+                ? $"Saved snapshot to {completed.Path}"
+                : "Snapshot save cancelled";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                      or InvalidDataException or NotSupportedException)
+        {
+            Logger.Error("snapshot save failed", ex);
+            _statCurrent.Text = $"Snapshot save failed: {ex.Message}";
+        }
+        finally
+        {
+            _saveSnapshotMenuItem.IsEnabled = _result is not null;
+        }
+    }
+
+    async void OnOpenSnapshot(object sender, RoutedEventArgs e)
+    {
+        _openSnapshotMenuItem.IsEnabled = false;
+        try
+        {
+            ScanSnapshotOpenResult opened = await ScanSnapshotService.OpenAsync(this);
+            if (opened is not ScanSnapshotOpenResult.Loaded loaded) return;
+            _statSize.Text = SizeFormatter.FormatBytes(loaded.Result.TotalBytes);
+            _statFiles.Text = $"{loaded.Result.FileCount:N0} files, {loaded.Result.DirCount:N0} dirs";
+            _statTime.Text = $"{loaded.Result.ElapsedSec:F1}s saved scan";
+            _statTimeSep.Visibility = Visibility.Visible;
+            _statScanner.Text = "Saved snapshot";
+            _statScannerSep.Visibility = Visibility.Visible;
+            _statVolume.Text = $"Opened {loaded.Path}";
+            _statCurrent.Text = "";
+            DisplayResult(loaded.Result);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                      or InvalidDataException or NotSupportedException)
+        {
+            Logger.Error("snapshot open failed", ex);
+            _statCurrent.Text = $"Snapshot open failed: {ex.Message}";
+        }
+        finally
+        {
+            _openSnapshotMenuItem.IsEnabled = true;
+        }
+    }
+
+    async void OnExportDiagnostics(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var service = new DiagnosticBundleService();
+            DiagnosticBundleSaveResult saved = await service.SaveAsync(this);
+            _statCurrent.Text = saved.Status == DiagnosticBundleSaveStatus.Saved
+                ? $"Saved redacted diagnostics to {saved.Path}"
+                : "Diagnostic export cancelled";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                      or ArgumentException or NotSupportedException)
+        {
+            Logger.Error("diagnostic export failed", ex);
+            _statCurrent.Text = $"Diagnostic export failed: {ex.Message}";
         }
     }
 
