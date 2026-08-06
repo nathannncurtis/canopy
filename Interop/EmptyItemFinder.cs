@@ -11,25 +11,48 @@ public readonly record struct EmptyScanItem(
     string RelativePath,
     EmptyItemKind Kind);
 
+public sealed record EmptyItemFinderOptions
+{
+    /// <summary>
+    /// Includes non-link files with zero allocated bytes. This does not prove logical
+    /// emptiness because sparse, resident, or unreadable files can also report zero.
+    /// </summary>
+    public bool IncludeZeroAllocationFiles { get; init; }
+
+    /// <summary>
+    /// Includes childless directory nodes. This is safe only when the caller knows the
+    /// scan was complete and unfiltered; depth limits and access failures are not stored.
+    /// </summary>
+    public bool AssumeCompleteUnfilteredDirectoryEnumeration { get; init; }
+}
+
 /// <summary>Finds empty files and directories in a completed scan result.</summary>
 public static class EmptyItemFinder
 {
     const uint NoNode = uint.MaxValue;
 
+    public static IReadOnlyList<EmptyScanItem> Find(
+        ScanResultManaged result,
+        CancellationToken cancellationToken) => Find(result, null, cancellationToken);
+
     /// <summary>
-    /// Returns zero-byte files and directories which contain no files or directories.
+    /// Returns candidate unallocated files and/or childless directories according to
+    /// explicit trust options. With safe defaults, no uncertain candidates are returned.
     /// Results retain node-index order. Paths are relative to the scan's containing
     /// location and therefore include the scanned root's name.
     /// </summary>
     /// <remarks>
-    /// A directory is empty only when it has no child nodes; a directory whose only
-    /// descendants are zero-byte files or empty directories is not itself empty.
+    /// Reparse points and symbolic links are always excluded. The scan ABI exposes
+    /// allocation size rather than logical EOF and does not record enumeration
+    /// completeness, so callers must opt into either potentially lossy classification.
     /// </remarks>
     public static IReadOnlyList<EmptyScanItem> Find(
         ScanResultManaged result,
+        EmptyItemFinderOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(result);
+        options ??= new EmptyItemFinderOptions();
 
         int count = result.Nodes.Length;
         if (result.Names.Length != count)
@@ -57,7 +80,11 @@ public static class EmptyItemFinder
             cancellationToken.ThrowIfCancellationRequested();
             ScanNode node = result.Nodes[index];
             bool isDirectory = (node.Flags & ScanNodeFlags.Directory) != 0;
-            if ((!isDirectory && node.Size == 0) || (isDirectory && !hasChildren[index]))
+            bool isLink = (node.Flags & (ScanNodeFlags.Reparse | ScanNodeFlags.Symlink)) != 0;
+            bool matchesFile = !isDirectory && options.IncludeZeroAllocationFiles && node.Size == 0;
+            bool matchesDirectory = isDirectory &&
+                options.AssumeCompleteUnfilteredDirectoryEnumeration && !hasChildren[index];
+            if (!isLink && (matchesFile || matchesDirectory))
             {
                 matches.Add(new EmptyScanItem(
                     index,
