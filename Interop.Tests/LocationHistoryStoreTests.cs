@@ -111,9 +111,11 @@ public sealed class LocationHistoryStoreTests
         var store = new LocationHistoryStore(temp.Path);
         await store.TouchAsync(@"C:\Existing", cancellationToken: TestContext.Current.CancellationToken);
 
-        Task<IReadOnlyList<ScanLocation>> read = Task.Run(() => store.Locations);
+        Task<IReadOnlyList<ScanLocation>> read = Task.Run(
+            () => store.Locations, TestContext.Current.CancellationToken);
 
-        Assert.Same(store.Locations, await read.WaitAsync(TimeSpan.FromSeconds(1)));
+        Assert.Same(store.Locations, await read.WaitAsync(
+            TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken));
     }
 
     [Fact]
