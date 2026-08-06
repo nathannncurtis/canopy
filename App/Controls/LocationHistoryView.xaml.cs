@@ -10,6 +10,8 @@ public partial class LocationHistoryView : UserControl
 {
     LocationHistoryStore? _store;
     CancellationTokenSource _lifetime = new();
+    readonly SemaphoreSlim _operationGate = new(1, 1);
+    bool _operationInFlight;
 
     public event Action<string>? PathActivated;
 
@@ -22,7 +24,6 @@ public partial class LocationHistoryView : UserControl
         {
             if (_lifetime.IsCancellationRequested)
             {
-                _lifetime.Dispose();
                 _lifetime = new CancellationTokenSource();
             }
         };
@@ -33,21 +34,36 @@ public partial class LocationHistoryView : UserControl
     public async Task SetStoreAsync(LocationHistoryStore? store, bool load = true,
         CancellationToken cancellationToken = default)
     {
-        _store = store;
-        if (store is not null && load)
-            await store.LoadAsync(cancellationToken);
-        RefreshLocations();
+        await _operationGate.WaitAsync(cancellationToken);
+        SetBusy(true);
+        try
+        {
+            if (store is not null && load)
+                await store.LoadAsync(cancellationToken);
+            _store = store;
+            RefreshLocations();
+        }
+        finally
+        {
+            SetBusy(false);
+            _operationGate.Release();
+        }
     }
 
     public void RefreshLocations()
     {
+        string? selectedPath = (_locations.SelectedItem as LocationItem)?.Path;
         IReadOnlyList<ScanLocation> locations = _store?.Locations ?? [];
-        _locations.ItemsSource = locations.Select(LocationItem.From).ToArray();
+        LocationItem[] items = locations.Select(LocationItem.From).ToArray();
+        _locations.ItemsSource = items;
+        if (selectedPath is not null)
+            _locations.SelectedItem = items.FirstOrDefault(item =>
+                string.Equals(item.Path, selectedPath, StringComparison.OrdinalIgnoreCase));
         _status.Text = _store is null
             ? "Location history is unavailable."
             : locations.Count == 0 ? "No favorite or recent locations yet."
             : $"{locations.Count(x => x.IsFavorite):N0} favorites, {locations.Count(x => !x.IsFavorite):N0} recent";
-        SetActionState(null);
+        SetActionState(_locations.SelectedItem as LocationItem);
     }
 
     async void OnOpen(object sender, RoutedEventArgs e) => await ActivateAsync(_pathBox.Text);
@@ -78,40 +94,41 @@ public partial class LocationHistoryView : UserControl
         SetActionState(selected);
     }
 
+    void OnPathTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_locations is null) return;
+        LocationItem? selected = _locations.SelectedItem as LocationItem;
+        if (selected is not null &&
+            !string.Equals(selected.Path, _pathBox.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+            _locations.SelectedItem = null;
+        SetActionState(_locations.SelectedItem as LocationItem);
+    }
+
     async void OnToggleFavorite(object sender, RoutedEventArgs e)
     {
-        if (_store is null) return;
-        string path = SelectedOrTypedPath();
-        if (string.IsNullOrWhiteSpace(path)) return;
-        try
+        await RunOperationAsync(async token =>
         {
-            LocationItem? selected = _locations.SelectedItem as LocationItem;
-            if (selected?.IsFavorite == true)
-                await _store.UnpinAsync(path, _lifetime.Token);
+            LocationHistoryStore? store = _store;
+            if (store is null || !TryNormalizeInput(_pathBox.Text, out string path)) return;
+            bool isFavorite = store.Locations.Any(item => item.IsFavorite &&
+                string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase));
+            if (isFavorite)
+                await store.UnpinAsync(path, token);
             else
-                await _store.PinAsync(path, cancellationToken: _lifetime.Token);
+                await store.PinAsync(path, cancellationToken: token);
             RefreshLocations();
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidDataException)
-        {
-            _status.Text = ex.Message;
-        }
+            _pathBox.Text = path;
+        });
     }
 
     async void OnRemove(object sender, RoutedEventArgs e)
     {
-        if (_store is null || _locations.SelectedItem is not LocationItem selected) return;
-        try
+        await RunOperationAsync(async token =>
         {
-            await _store.RemoveAsync(selected.Path, _lifetime.Token);
+            if (_store is null || _locations.SelectedItem is not LocationItem selected) return;
+            await _store.RemoveAsync(selected.Path, token);
             RefreshLocations();
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            _status.Text = ex.Message;
-        }
+        });
     }
 
     async Task ActivateAsync(string path)
@@ -121,20 +138,41 @@ public partial class LocationHistoryView : UserControl
             _status.Text = "Location history is unavailable.";
             return;
         }
-        if (string.IsNullOrWhiteSpace(path))
+        await RunOperationAsync(async token =>
         {
-            _status.Text = "Enter or select a location first.";
-            return;
-        }
-        try
-        {
-            string normalized = LocationHistoryStore.NormalizeWindowsPath(path);
-            await _store.TouchAsync(normalized, cancellationToken: _lifetime.Token);
+            LocationHistoryStore? store = _store;
+            if (store is null || !TryNormalizeInput(path, out string normalized)) return;
+            await store.TouchAsync(normalized, cancellationToken: token);
             RefreshLocations();
             _pathBox.Text = normalized;
             PathActivated?.Invoke(normalized);
+        });
+    }
+
+    void SetActionState(LocationItem? selected)
+    {
+        if (_openButton is null || _pinButton is null || _removeButton is null) return;
+        _openButton.IsEnabled = !_operationInFlight && _store is not null;
+        _pinButton.IsEnabled = !_operationInFlight && _store is not null;
+        _pinButton.Content = selected?.IsFavorite == true ? "Unfavorite" : "Favorite";
+        _removeButton.IsEnabled = !_operationInFlight && selected is not null && _store is not null;
+    }
+
+    async Task RunOperationAsync(Func<CancellationToken, Task> operation)
+    {
+        CancellationToken token = _lifetime.Token;
+        try
+        {
+            await _operationGate.WaitAsync(token);
+            SetBusy(true);
+            try { await operation(token); }
+            finally
+            {
+                SetBusy(false);
+                _operationGate.Release();
+            }
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
                                       or InvalidDataException or OverflowException)
         {
@@ -142,13 +180,37 @@ public partial class LocationHistoryView : UserControl
         }
     }
 
-    string SelectedOrTypedPath() => (_locations.SelectedItem as LocationItem)?.Path ?? _pathBox.Text;
-
-    void SetActionState(LocationItem? selected)
+    bool TryNormalizeInput(string path, out string normalized)
     {
-        _pinButton.IsEnabled = _store is not null;
-        _pinButton.Content = selected?.IsFavorite == true ? "Unfavorite" : "Favorite";
-        _removeButton.IsEnabled = selected is not null && _store is not null;
+        normalized = string.Empty;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            _status.Text = "Enter or select a location first.";
+            return false;
+        }
+        try { normalized = LocationHistoryStore.NormalizeWindowsPath(path); }
+        catch (ArgumentException ex)
+        {
+            _status.Text = ex.Message;
+            return false;
+        }
+        if (!Path.IsPathFullyQualified(normalized))
+        {
+            _status.Text = "Enter a fully qualified location, such as C:\\Data or \\\\server\\share.";
+            return false;
+        }
+        if (normalized.IndexOfAny(['*', '?']) >= 0)
+        {
+            _status.Text = "Location paths cannot contain wildcard characters.";
+            return false;
+        }
+        return true;
+    }
+
+    void SetBusy(bool busy)
+    {
+        _operationInFlight = busy;
+        SetActionState(_locations.SelectedItem as LocationItem);
     }
 
     sealed record LocationItem(string Path, string DisplayName, bool IsFavorite,
