@@ -20,9 +20,9 @@ public sealed class ScanNavigationIndex
         _result = result;
         _paths = new string[result.Nodes.Length];
         var states = new byte[result.Nodes.Length];
-        for (uint i = 0; i < result.Nodes.Length; i++)
-            Validate(i, states);
         var chain = new List<int>();
+        for (uint i = 0; i < result.Nodes.Length; i++)
+            Validate(i, states, chain);
         for (uint i = 0; i < result.Nodes.Length; i++)
             BuildPath(i, chain);
     }
@@ -69,14 +69,17 @@ public sealed class ScanNavigationIndex
         return _result.Nodes[nodeIndex].Parent;
     }
 
-    void Validate(uint nodeIndex, byte[] states)
+    void Validate(uint nodeIndex, byte[] states, List<int> chain)
     {
-        var chain = new List<int>();
+        chain.Clear();
         uint current = nodeIndex;
         while (current != NoNode)
         {
             if (current >= _result.Nodes.Length)
-                throw new InvalidDataException($"Node {nodeIndex} has an invalid parent index {current}.");
+            {
+                uint owner = chain.Count == 0 ? nodeIndex : (uint)chain[^1];
+                throw new InvalidDataException($"Node {owner} has an invalid parent index {current}.");
+            }
             if (states[current] == 2) break;
             if (states[current] == 1)
                 throw new InvalidDataException("The scan parent topology contains a cycle.");

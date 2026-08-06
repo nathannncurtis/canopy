@@ -1,5 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Media;
 using SizeMonitor.Interop;
 
 namespace SizeMonitor.Controls;
@@ -19,6 +22,7 @@ public partial class SizeTreeView : UserControl
     public void Populate(ScanResultManaged result)
     {
         _result = result;
+        _views = [];
         _tree.Items.Clear();
 
         if (result.Nodes.Length == 0) return;
@@ -36,9 +40,9 @@ public partial class SizeTreeView : UserControl
             tvi.IsExpanded = true;
     }
 
-    public void SelectNode(uint nodeIndex)
+    public bool SelectNode(uint nodeIndex)
     {
-        if (_result is null || nodeIndex >= _views.Length) return;
+        if (_result is null || nodeIndex >= _views.Length || nodeIndex >= _result.Nodes.Length) return false;
         var lineage = new Stack<uint>();
         uint current = nodeIndex;
         while (current != uint.MaxValue)
@@ -50,9 +54,8 @@ public partial class SizeTreeView : UserControl
         TreeViewItem? container = null;
         while (lineage.TryPop(out uint index))
         {
-            parent.UpdateLayout();
-            container = parent.ItemContainerGenerator.ContainerFromItem(_views[index]) as TreeViewItem;
-            if (container is null) return;
+            container = GetOrRealizeContainer(parent, _views[index]);
+            if (container is null) return false;
             if (lineage.Count > 0) container.IsExpanded = true;
             parent = container;
         }
@@ -60,6 +63,27 @@ public partial class SizeTreeView : UserControl
         {
             container.IsSelected = true;
             container.BringIntoView();
+            return true;
+        }
+        return false;
+    }
+
+    static TreeViewItem? GetOrRealizeContainer(ItemsControl parent, object item)
+    {
+        parent.UpdateLayout();
+        if (parent.ItemContainerGenerator.ContainerFromItem(item) is TreeViewItem existing) return existing;
+        int index = parent.Items.IndexOf(item);
+        if (index < 0) return null;
+        IItemContainerGenerator generator = parent.ItemContainerGenerator;
+        GeneratorPosition position = generator.GeneratorPositionFromIndex(index);
+        using (generator.StartAt(position, GeneratorDirection.Forward, true))
+        {
+            bool newlyRealized;
+            if (generator.GenerateNext(out newlyRealized) is not TreeViewItem generated) return null;
+            if (newlyRealized) generator.PrepareItemContainer(generated);
+            generated.BringIntoView();
+            parent.UpdateLayout();
+            return generated;
         }
     }
 
@@ -107,9 +131,27 @@ public partial class SizeTreeView : UserControl
             NodeSelected?.Invoke(view.Index);
     }
 
-    void OnMouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    void OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (_tree.SelectedItem is SizeNodeView view) NodeActivated?.Invoke(view.Index);
+        if (e.ChangedButton != MouseButton.Left || FindItem(e.OriginalSource as DependencyObject) is not TreeViewItem item ||
+            item.DataContext is not SizeNodeView view) return;
+        NodeActivated?.Invoke(view.Index);
+        e.Handled = true;
+    }
+
+    void OnPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        TreeViewItem? item = FindItem(e.OriginalSource as DependencyObject);
+        if (item is null) { e.Handled = true; return; }
+        item.IsSelected = true;
+        item.Focus();
+    }
+
+    static TreeViewItem? FindItem(DependencyObject? source)
+    {
+        while (source is not null && source is not TreeViewItem)
+            source = VisualTreeHelper.GetParent(source);
+        return source as TreeViewItem;
     }
 
     void OnKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
