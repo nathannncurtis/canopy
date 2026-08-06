@@ -1,0 +1,68 @@
+<UserControl x:Class="SizeMonitor.Controls.SnapshotHistoryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             AutomationProperties.Name="Snapshot history and trends">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="_policy" TextWrapping="Wrap" Margin="0,0,0,8"
+                   AutomationProperties.Name="Snapshot retention policy" />
+
+        <WrapPanel Grid.Row="1" Margin="0,0,0,8">
+            <Label Content="Target:" Target="{Binding ElementName=_target}" Padding="0,0,8,0" />
+            <ComboBox x:Name="_target" Width="280" Margin="0,0,16,0"
+                      SelectionChanged="OnTargetChanged"
+                      AutomationProperties.Name="Snapshot history target" />
+            <Label Content="Capacity:" Target="{Binding ElementName=_capacity}" Padding="0,0,8,0" />
+            <ui:TextBox x:Name="_capacity" Width="130" Margin="0,0,8,0"
+                        PlaceholderText="e.g. 1 TiB" ToolTip="Drive or target capacity used for the full-date forecast"
+                        AutomationProperties.Name="Forecast capacity" KeyDown="OnCapacityKeyDown" />
+            <ui:Button Content="Forecast" Click="OnForecast" ToolTip="Estimate when capacity will be full"
+                       AutomationProperties.Name="Calculate capacity forecast" />
+        </WrapPanel>
+
+        <StackPanel Grid.Row="2" Margin="0,0,0,8">
+            <TextBlock x:Name="_summary" AutomationProperties.LiveSetting="Polite"
+                       AutomationProperties.Name="Snapshot history summary" />
+            <TextBlock x:Name="_forecast" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"
+                       AutomationProperties.Name="Capacity forecast result" />
+        </StackPanel>
+
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="2*" />
+            </Grid.ColumnDefinitions>
+            <DataGrid x:Name="_snapshots" Margin="0,0,8,0" AutoGenerateColumns="False" IsReadOnly="True"
+                      CanUserAddRows="False" CanUserDeleteRows="False" SelectionMode="Single"
+                      EnableRowVirtualization="True" VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True"
+                      MouseDoubleClick="OnSnapshotDoubleClick" KeyDown="OnSnapshotKeyDown"
+                      ToolTip="Double-click a snapshot to open it"
+                      AutomationProperties.Name="Saved snapshots">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Captured" Binding="{Binding CapturedLocal}" Width="155" />
+                    <DataGridTextColumn Header="Bytes" Binding="{Binding TotalBytes, StringFormat=N0}" Width="120" />
+                    <DataGridTextColumn Header="Files" Binding="{Binding FileCount, StringFormat=N0}" Width="90" />
+                    <DataGridTextColumn Header="Snapshot bytes" Binding="{Binding SnapshotBytes, StringFormat=N0}" Width="120" />
+                </DataGrid.Columns>
+            </DataGrid>
+            <DataGrid x:Name="_trend" Grid.Column="1" Margin="8,0,0,0" AutoGenerateColumns="False"
+                      IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                      EnableRowVirtualization="True" VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True"
+                      AutomationProperties.Name="Storage trend samples">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Captured" Binding="{Binding CapturedLocal}" Width="*" />
+                    <DataGridTextColumn Header="Bytes" Binding="{Binding TotalBytes, StringFormat=N0}" Width="130" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </Grid>
+    </Grid>
+</UserControl>
