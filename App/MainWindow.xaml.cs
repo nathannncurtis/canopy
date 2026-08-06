@@ -24,6 +24,7 @@ public partial class MainWindow : FluentWindow
     Stopwatch?               _scanClock;
     LocationHistoryStore?    _locationHistory;
     ShellItemActionsMenu?    _shellActionsMenu;
+    readonly ScanCompletionNotificationService _notificationService = new();
     bool                     _paused;
     bool                     _scanInProgress;
     bool                     _diagnosticsInProgress;
@@ -186,6 +187,18 @@ public partial class MainWindow : FluentWindow
                             failure.Error ?? new IOException("Unknown scan failure."));
                     _statCurrent.Text = $"{failures.Length:N0} of {outcomes.Count:N0} targets failed; successful results are shown.";
                 }
+                await NotifyScanCompletionAsync(new ScanCompletionSummary
+                {
+                    Outcome = failures.Length == 0
+                        ? ScanCompletionOutcome.Success : ScanCompletionOutcome.PartialSuccess,
+                    TargetCount = outcomes.Count,
+                    SuccessfulTargets = targetResults.Length,
+                    FailedTargets = failures.Length,
+                    FileCount = result.FileCount,
+                    DirectoryCount = result.DirCount,
+                    TotalBytes = result.TotalBytes,
+                    Elapsed = scanClock.Elapsed,
+                });
             }
         }
         catch (OperationCanceledException)
@@ -206,6 +219,13 @@ public partial class MainWindow : FluentWindow
             _statTime.Text          = "";
             _statTimeSep.Visibility = Visibility.Collapsed;
             _statCurrent.Text       = "";
+            await NotifyScanCompletionAsync(new ScanCompletionSummary
+            {
+                Outcome = ScanCompletionOutcome.Failure,
+                TargetCount = paths.Length,
+                FailedTargets = paths.Length,
+                Elapsed = scanClock.Elapsed,
+            });
         }
         finally
         {
@@ -226,6 +246,21 @@ public partial class MainWindow : FluentWindow
             _cts = null;
             _scanClock?.Stop();
             _scanClock = null;
+        }
+    }
+
+    async Task NotifyScanCompletionAsync(ScanCompletionSummary summary)
+    {
+        try
+        {
+            ScanCompletionNotificationResult notification =
+                await _notificationService.NotifyAsync(summary);
+            if (notification.DeliveryError is not null)
+                Logger.Error("scan completion notification delivery failed", notification.DeliveryError);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("scan completion notification failed", ex);
         }
     }
 
