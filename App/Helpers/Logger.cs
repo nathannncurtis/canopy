@@ -4,9 +4,7 @@ namespace SizeMonitor.Helpers;
 
 internal static class Logger
 {
-    static readonly string _path = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Canopy", "canopy.log");
+    static readonly string _path = Path.Combine(AppDataPaths.DataDirectory, "canopy.log");
 
     internal static string LogPath => _path;
 

@@ -11,12 +11,14 @@ namespace SizeMonitor.Controls;
 
 public partial class SearchResultsView : UserControl
 {
+    const int MaximumDisplayedResults = 10_000;
     readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(250) };
     CancellationTokenSource? _searchCancellation;
     ScanResultManaged? _result;
     long _searchGeneration;
     readonly ScanFilterPresetStore _presetStore = new(AppDataPaths.FilterPresets);
     bool _applyingPreset;
+    bool _presetsLoaded;
 
     public event Action<uint>? NodeActivated;
 
@@ -25,11 +27,11 @@ public partial class SearchResultsView : UserControl
         InitializeComponent();
         _debounce.Tick += OnDebounceTick;
         Loaded += OnLoaded;
-        Unloaded += (_, _) => CancelSearch();
     }
 
     public void SetResult(ScanResultManaged? result)
     {
+        CancelSearch();
         _result = result;
         _results.ItemsSource = null;
         _status.Text = result is null
@@ -41,11 +43,15 @@ public partial class SearchResultsView : UserControl
 
     async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (_presetsLoaded) return;
         try
         {
-            SetPresets(await _presetStore.LoadAsync());
+            string? selectedName = (_presetBox.SelectedItem as ScanFilterPreset)?.Name;
+            SetPresets(await _presetStore.LoadAsync(), selectedName);
+            _presetsLoaded = true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException
+                                      or InvalidDataException)
         {
             _status.Text = ex.Message;
         }
@@ -77,7 +83,7 @@ public partial class SearchResultsView : UserControl
             _presetNameBox.Text = preset.Name;
             _regexCheck.IsChecked = !string.IsNullOrWhiteSpace(query.RegexPattern);
             _queryBox.Text = query.RegexPattern ?? query.Text ?? string.Empty;
-            _extensionBox.Text = string.Join(", ", query.Extensions);
+            _extensionBox.Text = string.Join(", ", query.Extensions ?? []);
             _minimumBox.Text = FormatOptionalSize(query.MinimumSize);
             _maximumBox.Text = FormatOptionalSize(query.MaximumSize);
             _kindBox.SelectedIndex = query.Kinds switch
@@ -123,7 +129,8 @@ public partial class SearchResultsView : UserControl
             _presetNameBox.Text = string.Empty;
             _status.Text = result.Removed ? $"Deleted preset '{selected.Name}'." : "Preset not found.";
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException
+                                      or InvalidDataException)
         {
             _status.Text = ex.Message;
         }
@@ -154,9 +161,11 @@ public partial class SearchResultsView : UserControl
 
     async Task RunSearchAsync()
     {
-        if (_result is null) return;
+        ScanResultManaged? result = _result;
+        if (result is null) return;
         CancelSearch();
         var cancellation = new CancellationTokenSource();
+        CancellationToken token = cancellation.Token;
         _searchCancellation = cancellation;
         long generation = Interlocked.Increment(ref _searchGeneration);
 
@@ -165,11 +174,12 @@ public partial class SearchResultsView : UserControl
             ScanQuery query = BuildQuery();
             _status.Text = "Searching...";
             IReadOnlyList<ScanSearchResult> matches = await Task.Run(
-                () => ScanResultQuery.Search(_result, query, cancellation.Token),
-                cancellation.Token);
+                () => ScanResultQuery.Search(result, query, token), token);
             if (generation != Volatile.Read(ref _searchGeneration)) return;
             _results.ItemsSource = matches;
-            _status.Text = $"{matches.Count:N0} matches";
+            _status.Text = matches.Count == MaximumDisplayedResults
+                ? $"Showing the first {MaximumDisplayedResults:N0} matches. Narrow the filter for more."
+                : $"{matches.Count:N0} matches";
         }
         catch (OperationCanceledException)
         {
@@ -199,6 +209,7 @@ public partial class SearchResultsView : UserControl
             2 => ScanItemKinds.Directories,
             _ => ScanItemKinds.All,
         },
+        ResultLimit = MaximumDisplayedResults,
     };
 
     bool HasCriteria() =>
@@ -240,7 +251,9 @@ public partial class SearchResultsView : UserControl
 
     void OnResultDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (_results.SelectedItem is ScanSearchResult result)
+        if (e.OriginalSource is DependencyObject source &&
+            ItemsControl.ContainerFromElement(_results, source) is DataGridRow &&
+            _results.SelectedItem is ScanSearchResult result)
             NodeActivated?.Invoke(result.NodeIndex);
     }
 
