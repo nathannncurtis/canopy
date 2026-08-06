@@ -33,6 +33,12 @@ public sealed record ScanQuery
     public uint ExcludedFlags { get; init; }
     public IReadOnlyList<ScanSortTerm> Sort { get; init; } =
         [new(ScanSortField.Size, Descending: true)];
+    /// <summary>
+    /// Bounds peak materialization by retaining the first matching nodes in traversal
+    /// order, then applying <see cref="Sort"/> within that retained set. This is not a
+    /// global top-N operation; use <see cref="ScanResultQuery.SearchPage"/> to observe
+    /// whether additional matches were clipped.
+    /// </summary>
     public int? ResultLimit { get; init; }
 }
 
@@ -54,3 +60,10 @@ public sealed record ScanSearchResult(
     double PercentOfParent,
     double PercentOfTotal,
     uint Flags);
+
+public sealed record ScanSearchPage(
+    IReadOnlyList<ScanSearchResult> Items,
+    int TotalMatches)
+{
+    public bool IsTruncated => Items.Count < TotalMatches;
+}
