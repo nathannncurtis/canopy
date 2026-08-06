@@ -24,6 +24,7 @@ public abstract record ScanSnapshotOpenResult
 public static class ScanSnapshotService
 {
     const string SnapshotFilter = "Canopy scan snapshots (*.canopy)|*.canopy|All files (*.*)|*.*";
+    static int _operationInFlight;
 
     public static async Task<ScanSnapshotSaveResult> SaveAsync(
         ScanResultManaged result,
@@ -32,6 +33,22 @@ public static class ScanSnapshotService
     {
         ArgumentNullException.ThrowIfNull(result);
         cancellationToken.ThrowIfCancellationRequested();
+        EnterOperation();
+        try
+        {
+            return await SaveCoreAsync(result, owner, cancellationToken);
+        }
+        finally
+        {
+            Volatile.Write(ref _operationInFlight, 0);
+        }
+    }
+
+    static async Task<ScanSnapshotSaveResult> SaveCoreAsync(
+        ScanResultManaged result,
+        Window? owner,
+        CancellationToken cancellationToken)
+    {
 
         var dialog = new SaveFileDialog
         {
@@ -48,7 +65,9 @@ public static class ScanSnapshotService
         if (accepted != true) return new ScanSnapshotSaveResult.Cancelled();
 
         cancellationToken.ThrowIfCancellationRequested();
-        await ScanSnapshotStore.SaveAsync(dialog.FileName, result, cancellationToken);
+        await Task.Run(
+            () => ScanSnapshotStore.SaveAsync(dialog.FileName, result, cancellationToken),
+            cancellationToken);
         return new ScanSnapshotSaveResult.Saved(dialog.FileName);
     }
 
@@ -57,6 +76,21 @@ public static class ScanSnapshotService
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        EnterOperation();
+        try
+        {
+            return await OpenCoreAsync(owner, cancellationToken);
+        }
+        finally
+        {
+            Volatile.Write(ref _operationInFlight, 0);
+        }
+    }
+
+    static async Task<ScanSnapshotOpenResult> OpenCoreAsync(
+        Window? owner,
+        CancellationToken cancellationToken)
+    {
 
         var dialog = new OpenFileDialog
         {
@@ -73,7 +107,15 @@ public static class ScanSnapshotService
         if (accepted != true) return new ScanSnapshotOpenResult.Cancelled();
 
         cancellationToken.ThrowIfCancellationRequested();
-        ScanResultManaged result = await ScanSnapshotStore.LoadAsync(dialog.FileName, cancellationToken);
+        ScanResultManaged result = await Task.Run(
+            () => ScanSnapshotStore.LoadAsync(dialog.FileName, cancellationToken),
+            cancellationToken);
         return new ScanSnapshotOpenResult.Loaded(dialog.FileName, result);
+    }
+
+    static void EnterOperation()
+    {
+        if (Interlocked.CompareExchange(ref _operationInFlight, 1, 0) != 0)
+            throw new InvalidOperationException("A scan snapshot operation is already in progress.");
     }
 }
