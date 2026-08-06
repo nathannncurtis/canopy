@@ -79,6 +79,19 @@ public sealed class ScanNavigationTests
     }
 
     [Fact]
+    public void InvalidParentDiagnosticIdentifiesTheOwningAncestor()
+    {
+        var result = new ScanResultManaged
+        {
+            Nodes = [Node(None), Node(3), Node(None), Node(99)],
+            Names = ["root", "child", "other", "broken"],
+        };
+        InvalidDataException error = Assert.Throws<InvalidDataException>(() => new ScanNavigationIndex(result));
+        Assert.Contains("Node 3", error.Message);
+        Assert.Contains("index 99", error.Message);
+    }
+
+    [Fact]
     public void RejectsParentCycles()
     {
         ScanResultManaged result = Result();
