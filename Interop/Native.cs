@@ -50,6 +50,10 @@ internal static unsafe class Native
     [DllImport(Dll, ExactSpelling = true)]
     internal static extern uint Smon_GetError(IntPtr handle);
 
+    [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool Smon_GetErrorInfo(IntPtr handle, ref SmonErrorInfoNative errorInfo);
+
     [DllImport(Dll, ExactSpelling = true)]
     internal static extern uint Smon_GetScannerKind(IntPtr handle);
 

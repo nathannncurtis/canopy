@@ -39,6 +39,8 @@ int wmain(int argc, wchar_t* argv[])
                L"directory capability") ||
         !Check((capabilities.flags & SMON_CAP_SCAN_OPTIONS) != 0,
                L"scan options capability") ||
+        !Check((capabilities.flags & SMON_CAP_ERROR_INFO) != 0,
+               L"structured error capability") ||
         !Check(capabilities.max_nodes > 0 && capabilities.max_name_bytes > 0,
                L"arena capabilities"))
         return 1;
@@ -47,6 +49,7 @@ int wmain(int argc, wchar_t* argv[])
         !Check(Smon_SetPaused(nullptr, TRUE) == FALSE, L"pause rejects null") ||
         !Check(Smon_Wait(nullptr, 0) == FALSE, L"wait rejects null") ||
         !Check(Smon_GetError(nullptr) == ERROR_INVALID_HANDLE, L"null error code") ||
+        !Check(Smon_GetErrorInfo(nullptr, nullptr) == FALSE, L"null error info rejected") ||
         !Check(Smon_GetScannerKind(nullptr) == SMON_SCANNER_UNKNOWN, L"null scanner kind"))
         return 1;
 
@@ -132,6 +135,13 @@ int wmain(int argc, wchar_t* argv[])
         !Check(Smon_Wait(h, INFINITE) != FALSE, L"scan completed")) {
         Smon_Cancel(h);
         Smon_Wait(h, INFINITE);
+        Smon_FreeResult(h);
+        return 1;
+    }
+    SmonErrorInfo error_info{};
+    error_info.struct_size = sizeof(error_info);
+    if (!Check(Smon_GetErrorInfo(h, &error_info) != FALSE, L"structured error info returned") ||
+        !Check(error_info.struct_size == sizeof(error_info), L"structured error size returned")) {
         Smon_FreeResult(h);
         return 1;
     }

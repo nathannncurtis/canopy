@@ -6,6 +6,20 @@
 #include <cstring>
 #include <cstddef>
 #include <new>
+#include <cwchar>
+
+static DWORD ClassifyError(DWORD code)
+{
+    if (code == ERROR_SUCCESS) return SMON_ERROR_CATEGORY_NONE;
+    if (code == ERROR_CANCELLED) return SMON_ERROR_CATEGORY_CANCELLED;
+    if (code == ERROR_ACCESS_DENIED || code == ERROR_SHARING_VIOLATION || code == ERROR_PRIVILEGE_NOT_HELD)
+        return SMON_ERROR_CATEGORY_ACCESS;
+    if (code == ERROR_NOT_ENOUGH_MEMORY || code == ERROR_INSUFFICIENT_BUFFER || code == ERROR_DISK_FULL)
+        return SMON_ERROR_CATEGORY_RESOURCE;
+    if (code == ERROR_INVALID_PARAMETER || code == ERROR_INVALID_FLAGS || code == ERROR_BAD_ARGUMENTS)
+        return SMON_ERROR_CATEGORY_ARGUMENT;
+    return SMON_ERROR_CATEGORY_IO;
+}
 
 DWORD WINAPI Smon_GetAbiVersion(void)
 {
@@ -31,7 +45,8 @@ BOOL WINAPI Smon_GetCapabilities(SmonCapabilities* capabilities)
     value.flags = SMON_CAP_MFT_SCANNER |
                   SMON_CAP_DIRECTORY_SCANNER |
                   SMON_CAP_PAUSE_RESUME |
-                  SMON_CAP_SCAN_OPTIONS;
+                  SMON_CAP_SCAN_OPTIONS |
+                  SMON_CAP_ERROR_INFO;
     if (CpuHasAvx2()) value.flags |= SMON_CAP_AVX2_ASM;
     value.max_nodes = NodePool::MaxNodes;
     value.max_name_bytes = NodePool::MaxNameBytes;
@@ -163,6 +178,38 @@ BOOL WINAPI Smon_Wait(ScanHandle h, DWORD timeout_ms)
 DWORD WINAPI Smon_GetError(ScanHandle h)
 {
     return h ? static_cast<ScanContext*>(h)->error.load(std::memory_order_acquire) : ERROR_INVALID_HANDLE;
+}
+
+BOOL WINAPI Smon_GetErrorInfo(ScanHandle h, SmonErrorInfo* info)
+{
+    if (!h || !info) { SetLastError(ERROR_INVALID_PARAMETER); return FALSE; }
+    const uint32_t caller_size = info->struct_size;
+    constexpr uint32_t minimum_size = static_cast<uint32_t>(offsetof(SmonErrorInfo, path_length) + sizeof(uint32_t));
+    if (caller_size < minimum_size) {
+        info->struct_size = sizeof(SmonErrorInfo);
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return FALSE;
+    }
+    auto* ctx = static_cast<ScanContext*>(h);
+    SmonErrorInfo value{};
+    value.struct_size = sizeof(value);
+    value.win32_error = ctx->error.load(std::memory_order_acquire);
+    {
+        std::lock_guard<std::mutex> lock(ctx->error_mutex);
+        value.category = ctx->error_category;
+        value.stage = ctx->error_stage;
+        value.access_error_count = ctx->access_error_count;
+        value.access_win32_error = ctx->access_win32_error;
+        value.path_length = static_cast<uint32_t>((ctx->error_path.size() < SMON_ERROR_PATH_CHARS - 1)
+            ? ctx->error_path.size() : SMON_ERROR_PATH_CHARS - 1);
+        if (value.path_length) std::wmemcpy(value.path, ctx->error_path.data(), value.path_length);
+        value.path[value.path_length] = L'\0';
+    }
+    if (value.category == SMON_ERROR_CATEGORY_NONE)
+        value.category = ClassifyError(value.win32_error);
+    std::memcpy(info, &value, caller_size < sizeof(value) ? caller_size : sizeof(value));
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
 }
 
 DWORD WINAPI Smon_GetScannerKind(ScanHandle h)

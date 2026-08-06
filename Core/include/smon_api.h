@@ -29,6 +29,21 @@
 #define SMON_CAP_PAUSE_RESUME      0x00000004ull
 #define SMON_CAP_AVX2_ASM          0x00000008ull
 #define SMON_CAP_SCAN_OPTIONS      0x00000010ull
+#define SMON_CAP_ERROR_INFO        0x00000020ull
+
+#define SMON_ERROR_CATEGORY_NONE       0u
+#define SMON_ERROR_CATEGORY_ARGUMENT   1u
+#define SMON_ERROR_CATEGORY_ACCESS     2u
+#define SMON_ERROR_CATEGORY_IO         3u
+#define SMON_ERROR_CATEGORY_CANCELLED  4u
+#define SMON_ERROR_CATEGORY_RESOURCE   5u
+#define SMON_ERROR_CATEGORY_INTERNAL   6u
+
+#define SMON_ERROR_STAGE_NONE       0u
+#define SMON_ERROR_STAGE_OPEN       1u
+#define SMON_ERROR_STAGE_ENUMERATE  2u
+#define SMON_ERROR_STAGE_BUILD      3u
+#define SMON_ERROR_PATH_CHARS       1024u
 
 #define SMON_OPTION_EXCLUDE_HIDDEN       0x00000001u
 #define SMON_OPTION_EXCLUDE_SYSTEM       0x00000002u
@@ -54,6 +69,17 @@ typedef struct SmonCapabilities {
     uint32_t max_nodes;
     uint32_t max_name_bytes;
 } SmonCapabilities;
+
+typedef struct SmonErrorInfo {
+    uint32_t struct_size;
+    uint32_t win32_error;
+    uint32_t category;
+    uint32_t stage;
+    uint32_t access_error_count;
+    uint32_t access_win32_error;
+    uint32_t path_length;
+    wchar_t path[SMON_ERROR_PATH_CHARS];
+} SmonErrorInfo;
 
 // 32 bytes, naturally aligned -- matches C# [StructLayout(LayoutKind.Sequential, Pack=8)]
 typedef struct ScanNode {
@@ -104,6 +130,7 @@ SMON_API BOOL WINAPI Smon_Cancel(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_SetPaused(ScanHandle handle, BOOL paused);
 SMON_API BOOL WINAPI Smon_Wait(ScanHandle handle, DWORD timeout_ms);
 SMON_API DWORD WINAPI Smon_GetError(ScanHandle handle);
+SMON_API BOOL WINAPI Smon_GetErrorInfo(ScanHandle handle, SmonErrorInfo* error_info);
 SMON_API DWORD WINAPI Smon_GetScannerKind(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_GetResult(ScanHandle handle, ScanResult* out);
 SMON_API void WINAPI Smon_FreeResult(ScanHandle handle);

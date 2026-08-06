@@ -245,6 +245,7 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                              FILE_FLAG_BACKUP_SEMANTICS,
                              nullptr);
     if (dir == INVALID_HANDLE_VALUE) {
+        RecordAccessError(ctx, GetLastError(), item.path);
         InterlockedDecrement(&state->in_flight);
         return;
     }
