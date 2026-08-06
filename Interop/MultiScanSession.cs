@@ -44,10 +44,16 @@ public sealed class MultiScanSession : IAsyncDisposable
         IProgress<TargetScanProgress>? progress = null, CancellationToken cancellationToken = default,
         ScanOptions? options = null)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        Task<IReadOnlyList<TargetScanOutcome>> run = RunAsync(paths, progress, cancellationToken, options);
-        lock (_gate) _activeRun = run;
-        return run;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_runCancellation is not null)
+                return Task.FromException<IReadOnlyList<TargetScanOutcome>>(
+                    new InvalidOperationException("This coordinator already has an active scan."));
+            Task<IReadOnlyList<TargetScanOutcome>> run = RunAsync(paths, progress, cancellationToken, options);
+            _activeRun = run;
+            return run;
+        }
     }
 
     async Task<IReadOnlyList<TargetScanOutcome>> RunAsync(IEnumerable<string> paths,
@@ -146,6 +152,11 @@ public sealed class MultiScanSession : IAsyncDisposable
 
     sealed class CallbackProgress<T>(Action<T> callback) : IProgress<T>
     {
-        public void Report(T value) => callback(value);
+        public void Report(T value)
+        {
+            // Never unwind a managed exception through the reverse-P/Invoke frame.
+            try { callback(value); }
+            catch { }
+        }
     }
 }
