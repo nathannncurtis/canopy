@@ -1,0 +1,47 @@
+<UserControl x:Class="SizeMonitor.Controls.DuplicateFilesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <StackPanel Orientation="Horizontal">
+            <Button x:Name="_start" Content="Find duplicates" Click="OnStart"
+                    automation:AutomationProperties.Name="Find duplicate files" />
+            <Button x:Name="_cancel" Content="Cancel" Margin="8,0,0,0" IsEnabled="False"
+                    Click="OnCancel" automation:AutomationProperties.Name="Cancel duplicate search" />
+            <CheckBox x:Name="_strict" Content="Stop on inaccessible files" Margin="16,0,0,0"
+                      VerticalAlignment="Center" />
+            <TextBlock Text="Retain recommendation:" Margin="20,0,6,0" VerticalAlignment="Center" />
+            <ComboBox x:Name="_policy" Width="160" SelectedIndex="0" SelectionChanged="OnPolicyChanged"
+                      automation:AutomationProperties.Name="Duplicate retain recommendation policy">
+                <ComboBoxItem Content="Newest file" Tag="Newest" />
+                <ComboBoxItem Content="Oldest file" Tag="Oldest" />
+                <ComboBoxItem Content="Shortest path" Tag="ShortestPath" />
+            </ComboBox>
+        </StackPanel>
+        <ProgressBar x:Name="_progress" Grid.Row="1" Height="3" Margin="0,8,0,8"
+                     IsIndeterminate="True" Visibility="Collapsed" />
+        <DataGrid x:Name="_items" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True"
+                  SelectionMode="Single" EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                  VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                  MouseDoubleClick="OnItemDoubleClick"
+                  automation:AutomationProperties.Name="Duplicate file groups">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Group" Binding="{Binding GroupNumber}" Width="70" />
+                <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" Width="100" />
+                <DataGridTextColumn Header="Reclaimable" Binding="{Binding ReclaimableText}" Width="110" />
+                <DataGridCheckBoxColumn Header="Retain" Binding="{Binding IsRecommendedRetain}" Width="65" />
+                <DataGridTextColumn Header="Path" Binding="{Binding Path}" Width="*" />
+                <DataGridTextColumn Header="SHA-256" Binding="{Binding Sha256}" Width="220" />
+            </DataGrid.Columns>
+        </DataGrid>
+        <TextBlock x:Name="_status" Grid.Row="3" Margin="0,8,0,0"
+                   automation:AutomationProperties.Name="Duplicate search status"
+                   AutomationProperties.LiveSetting="Polite" />
+    </Grid>
+</UserControl>
