@@ -48,7 +48,7 @@ typedef struct SmonScanOptions {
 } SmonScanOptions;
 
 typedef struct SmonCapabilities {
-    uint32_t struct_size;
+    uint32_t struct_size; // in: caller buffer size; out: current DLL struct size
     uint32_t abi_version;
     uint64_t flags;
     uint32_t max_nodes;

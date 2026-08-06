@@ -288,6 +288,8 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                 bool is_reparse = (fdi->FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
                 uint64_t entry_size = is_dir ? 0 :
                     static_cast<uint64_t>(fdi->AllocationSize.QuadPart);
+                uint64_t logical_size = is_dir ? 0 :
+                    static_cast<uint64_t>(fdi->EndOfFile.QuadPart);
 
                 std::wstring name(fdi->FileName, name_chars);
                 std::wstring relative_path = item.relative_path;
@@ -295,7 +297,7 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                 relative_path += name;
                 uint32_t child_depth = item.depth + 1;
                 if (!ctx->options.ShouldInclude(relative_path, name,
-                                                fdi->FileAttributes, entry_size,
+                                                fdi->FileAttributes, logical_size,
                                                 is_dir, child_depth)) {
                     if (fdi->NextEntryOffset == 0) break;
                     p += fdi->NextEntryOffset;
@@ -325,6 +327,7 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                         idx = ctx->pool.AllocNode();
                         if (idx == UINT32_MAX) {
                             ctx->error = ERROR_NOT_ENOUGH_MEMORY;
+                            ctx->cancelled.store(true, std::memory_order_release);
                             LeaveCriticalSection(&state->cs);
                             CloseHandle(dir);
                             InterlockedDecrement(&state->in_flight);
@@ -334,6 +337,7 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                         node->name_offset  = ctx->pool.AppendName(fdi->FileName, name_chars);
                         if (node->name_offset == UINT32_MAX) {
                             ctx->error = ERROR_NOT_ENOUGH_MEMORY;
+                            ctx->cancelled.store(true, std::memory_order_release);
                             LeaveCriticalSection(&state->cs);
                             CloseHandle(dir);
                             InterlockedDecrement(&state->in_flight);
@@ -360,6 +364,9 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                             child_item.depth      = child_depth;
                             state->pending.push(std::move(child_item));
                         }
+                    } else {
+                        ctx->error = ERROR_INSUFFICIENT_BUFFER;
+                        ctx->cancelled.store(true, std::memory_order_release);
                     }
                     LeaveCriticalSection(&state->cs);
                 }

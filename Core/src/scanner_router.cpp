@@ -44,7 +44,7 @@ bool RouterBeginScan(ScanContext* ctx, const wchar_t* path)
     LPTHREAD_START_ROUTINE thread_proc = nullptr;
 
     // UNC paths go straight to dir_scanner; no MFT access possible.
-    if (ctx->options.force_directory_scanner ||
+    if (ctx->options.force_directory_scanner || ctx->options.HasConstrainingOptions() ||
         (path[0] == L'\\' && path[1] == L'\\')) {
         thread_proc = DirScanThread;
         ctx->scanner_kind = SMON_SCANNER_DIRECTORY;

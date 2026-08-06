@@ -127,12 +127,42 @@ public sealed class InteropContractTests
         }.Validate());
         Assert.Throws<ArgumentOutOfRangeException>(() => new ScanOptions
         {
-            WorkerThreads = 1025,
+            WorkerThreads = 33,
         }.Validate());
         Assert.Throws<ArgumentException>(() => new ScanOptions
         {
             ExcludedPatterns = ["one;two"],
         }.Validate());
+        Assert.Throws<ArgumentException>(() => new ScanOptions
+        {
+            ExcludedPatterns = ["one\0two"],
+        }.Validate());
+        Assert.Throws<ArgumentException>(() => new ScanOptions
+        {
+            ExcludedExtensions = ["temp*"],
+        }.Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ScanOptions
+        {
+            MaximumDepth = 0,
+        }.Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ScanOptions
+        {
+            MaximumFileSize = 0,
+        }.Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ScanOptions
+        {
+            WorkerThreads = 0,
+        }.Validate());
+    }
+
+    [Fact]
+    public void ScanOptionsNormalizeWildcardExtensions()
+    {
+        var options = new ScanOptions { ExcludedExtensions = ["*.tmp", "*.LOG"] };
+
+        options.Validate();
+
+        Assert.Equal(".tmp;.LOG", options.BuildExcludedExtensionList());
     }
 
     [Fact]

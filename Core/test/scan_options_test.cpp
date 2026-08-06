@@ -13,7 +13,8 @@ int wmain()
     if (!Check(GlobMatchInsensitive(L"*.TMP", L"cache.tmp"), L"case-insensitive glob") ||
         !Check(GlobMatchInsensitive(L"build/*/obj", L"BUILD\\x64\\obj"), L"path glob") ||
         !Check(GlobMatchInsensitive(L"file-??.bin", L"file-01.bin"), L"question glob") ||
-        !Check(!GlobMatchInsensitive(L"*.zip", L"archive.7z"), L"glob mismatch"))
+        !Check(!GlobMatchInsensitive(L"*.zip", L"archive.7z"), L"glob mismatch") ||
+        !Check(GlobMatchInsensitive(L"ärger*", L"ÄRGER-data"), L"Unicode case-insensitive glob"))
         return 1;
 
     ScanOptions defaults;
@@ -31,7 +32,7 @@ int wmain()
     filtered.include_temporary = false;
     filtered.include_reparse_points = false;
     filtered.SetExcludedPatterns(L"obj; build\\* ; OBJ");
-    filtered.SetExcludedExtensions(L"tmp, .LOG;tmp");
+    filtered.SetExcludedExtensions(L"*.tmp, .LOG;tmp;.möv");
 
     if (!Check(!filtered.ShouldInclude(L"deep\\file.bin", L"file.bin", 0, 500, false, 3),
                L"depth excluded") ||
@@ -41,12 +42,14 @@ int wmain()
                                       0, true, 1), L"directory pattern excluded") ||
         !Check(!filtered.ShouldInclude(L"cache.tmp", L"cache.tmp", 0, 500, false, 1),
                L"extension excluded") ||
+        !Check(!filtered.ShouldInclude(L"film.MÖV", L"film.MÖV", 0, 500, false, 1),
+               L"Unicode extension excluded") ||
         !Check(!filtered.ShouldInclude(L"small.bin", L"small.bin", 0, 99, false, 1),
                L"minimum size excluded") ||
         !Check(filtered.ShouldInclude(L"data.bin", L"data.bin", 0, 500, false, 1),
                L"matching file included") ||
         !Check(filtered.excluded_patterns.size() == 2, L"patterns normalized and deduplicated") ||
-        !Check(filtered.excluded_extensions.size() == 2, L"extensions normalized and deduplicated"))
+        !Check(filtered.excluded_extensions.size() == 3, L"extensions normalized and deduplicated"))
         return 1;
 
     filtered.minimum_file_size = 2;
@@ -54,7 +57,7 @@ int wmain()
     if (!Check(filtered.Validate() == ERROR_INVALID_PARAMETER, L"invalid size range rejected"))
         return 1;
     filtered.maximum_file_size = UINT64_MAX;
-    filtered.worker_threads = 1025;
+    filtered.worker_threads = 33;
     if (!Check(filtered.Validate() == ERROR_INVALID_PARAMETER, L"thread cap enforced"))
         return 1;
     return 0;

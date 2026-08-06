@@ -21,6 +21,7 @@ struct ScanOptions {
     std::vector<std::wstring> excluded_extensions;
 
     DWORD Validate() const;
+    bool HasConstrainingOptions() const;
     bool ShouldInclude(std::wstring_view relative_path,
                        std::wstring_view name,
                        DWORD attributes,

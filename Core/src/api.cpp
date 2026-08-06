@@ -4,6 +4,7 @@
 #include "size_rollup.h"
 #include "cpu_features.h"
 #include <cstring>
+#include <cstddef>
 #include <new>
 
 DWORD WINAPI Smon_GetAbiVersion(void)
@@ -13,8 +14,15 @@ DWORD WINAPI Smon_GetAbiVersion(void)
 
 BOOL WINAPI Smon_GetCapabilities(SmonCapabilities* capabilities)
 {
-    if (!capabilities || capabilities->struct_size < sizeof(SmonCapabilities)) {
-        SetLastError(capabilities ? ERROR_INSUFFICIENT_BUFFER : ERROR_INVALID_PARAMETER);
+    if (!capabilities) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    const uint32_t caller_size = capabilities->struct_size;
+    constexpr uint32_t minimum_size = static_cast<uint32_t>(offsetof(SmonCapabilities, flags) + sizeof(uint64_t));
+    if (caller_size < minimum_size) {
+        capabilities->struct_size = sizeof(SmonCapabilities);
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
         return FALSE;
     }
     SmonCapabilities value{};
@@ -27,7 +35,7 @@ BOOL WINAPI Smon_GetCapabilities(SmonCapabilities* capabilities)
     if (CpuHasAvx2()) value.flags |= SMON_CAP_AVX2_ASM;
     value.max_nodes = NodePool::MaxNodes;
     value.max_name_bytes = NodePool::MaxNameBytes;
-    std::memcpy(capabilities, &value, sizeof(value));
+    std::memcpy(capabilities, &value, caller_size < sizeof(value) ? caller_size : sizeof(value));
     SetLastError(ERROR_SUCCESS);
     return TRUE;
 }
@@ -56,6 +64,12 @@ ScanHandle WINAPI Smon_BeginScanEx(const wchar_t* path,
     auto* ctx = new (std::nothrow) ScanContext();
     if (!ctx) {
         SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        return nullptr;
+    }
+    if (!ctx->cancel_event || !ctx->resume_event) {
+        DWORD error = GetLastError();
+        delete ctx;
+        SetLastError(error == ERROR_SUCCESS ? ERROR_NOT_ENOUGH_MEMORY : error);
         return nullptr;
     }
     ctx->callback   = cb;
@@ -120,15 +134,21 @@ ScanHandle WINAPI Smon_BeginScanEx(const wchar_t* path,
 BOOL WINAPI Smon_Cancel(ScanHandle h)
 {
     if (!h) return FALSE;
-    static_cast<ScanContext*>(h)->cancelled = true;
+    auto* ctx = static_cast<ScanContext*>(h);
+    ctx->cancelled.store(true, std::memory_order_release);
+    if (ctx->cancel_event) SetEvent(ctx->cancel_event);
     return TRUE;
 }
 
 BOOL WINAPI Smon_SetPaused(ScanHandle h, BOOL paused)
 {
     if (!h) return FALSE;
-    static_cast<ScanContext*>(h)->paused.store(paused != FALSE,
-                                               std::memory_order_release);
+    auto* ctx = static_cast<ScanContext*>(h);
+    ctx->paused.store(paused != FALSE, std::memory_order_release);
+    if (ctx->resume_event) {
+        if (paused) ResetEvent(ctx->resume_event);
+        else SetEvent(ctx->resume_event);
+    }
     return TRUE;
 }
 
@@ -142,7 +162,7 @@ BOOL WINAPI Smon_Wait(ScanHandle h, DWORD timeout_ms)
 
 DWORD WINAPI Smon_GetError(ScanHandle h)
 {
-    return h ? static_cast<ScanContext*>(h)->error : ERROR_INVALID_HANDLE;
+    return h ? static_cast<ScanContext*>(h)->error.load(std::memory_order_acquire) : ERROR_INVALID_HANDLE;
 }
 
 DWORD WINAPI Smon_GetScannerKind(ScanHandle h)
@@ -160,7 +180,7 @@ BOOL WINAPI Smon_GetResult(ScanHandle h, ScanResult* out)
         ctx->rolled_up = true;
     }
     *out = ctx->result;
-    return ctx->error == 0;
+    return ctx->error.load(std::memory_order_acquire) == 0;
 }
 
 void WINAPI Smon_FreeResult(ScanHandle h)

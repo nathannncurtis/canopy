@@ -23,8 +23,13 @@ int wmain(int argc, wchar_t* argv[])
         !Check(Smon_GetCapabilities(nullptr) == FALSE, L"null capabilities rejected"))
         return 1;
     SmonCapabilities too_small{};
-    too_small.struct_size = sizeof(too_small) - 1;
+    too_small.struct_size = 8;
     if (!Check(Smon_GetCapabilities(&too_small) == FALSE, L"small capabilities rejected"))
+        return 1;
+    SmonCapabilities old_caller{};
+    old_caller.struct_size = 16;
+    if (!Check(Smon_GetCapabilities(&old_caller) != FALSE, L"older capability prefix accepted") ||
+        !Check(old_caller.struct_size == sizeof(SmonCapabilities), L"current capability size reported"))
         return 1;
     SmonCapabilities capabilities{};
     capabilities.struct_size = sizeof(capabilities);
@@ -79,7 +84,7 @@ int wmain(int argc, wchar_t* argv[])
 
     invalid = {};
     invalid.struct_size = sizeof(invalid);
-    invalid.worker_threads = 1025;
+    invalid.worker_threads = 33;
     if (!Check(Smon_BeginScanEx(path, &invalid, nullptr, nullptr) == nullptr &&
                GetLastError() == ERROR_INVALID_PARAMETER,
                L"extended scan rejects an excessive worker count"))
@@ -87,14 +92,13 @@ int wmain(int argc, wchar_t* argv[])
 
     SmonScanOptions filtered{};
     filtered.struct_size = sizeof(filtered);
-    filtered.flags = SMON_OPTION_FORCE_DIRECTORY_SCAN;
     filtered.worker_threads = 1;
     filtered.excluded_extensions = L".cpp";
     ScanHandle filtered_handle = Smon_BeginScanEx(path, &filtered, nullptr, nullptr);
     if (!Check(filtered_handle != nullptr, L"extended scan starts"))
         return 1;
     if (!Check(Smon_GetScannerKind(filtered_handle) == SMON_SCANNER_DIRECTORY,
-               L"directory scanner can be forced") ||
+               L"constraining options route to directory scanner") ||
         !Check(Smon_Wait(filtered_handle, INFINITE) != FALSE,
                L"filtered scan completed")) {
         Smon_Cancel(filtered_handle);
