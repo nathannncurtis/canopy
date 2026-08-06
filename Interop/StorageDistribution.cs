@@ -62,6 +62,10 @@ public static class StorageDistribution
 
     static string NormalizeExtension(string name)
     {
+        // A leading dot denotes the filename on Windows/POSIX, not an extension,
+        // unless another dot follows it (for example, .config.json).
+        if (name.StartsWith('.') && name.IndexOf('.', 1) < 0)
+            return NoExtension;
         string extension = Path.GetExtension(name);
         return string.IsNullOrEmpty(extension) || extension == "."
             ? NoExtension
