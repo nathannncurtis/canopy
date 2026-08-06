@@ -33,7 +33,8 @@ public sealed class ScanResultExportService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(result);
-        cancellationToken.ThrowIfCancellationRequested();
+        if (cancellationToken.IsCancellationRequested)
+            return new(ScanResultExportStatus.Cancelled);
 
         var dialog = new SaveFileDialog
         {
@@ -41,20 +42,19 @@ public sealed class ScanResultExportService
             Filter = "CSV files (*.csv)|*.csv|JSON files (*.json)|*.json|" +
                      "XML files (*.xml)|*.xml|HTML files (*.html)|*.html",
             FilterIndex = 1,
-            // With no fixed DefaultExt, AddExtension uses the active filter so changing
-            // formats also changes the suggested canopy-scan extension.
-            DefaultExt = string.Empty,
+            DefaultExt = ".csv",
             AddExtension = true,
             OverwritePrompt = true,
             CheckPathExists = true,
-            FileName = "canopy-scan",
+            FileName = "canopy-scan.csv",
         };
 
         bool? accepted = owner is null ? dialog.ShowDialog() : dialog.ShowDialog(owner);
         if (accepted != true)
             return new(ScanResultExportStatus.Cancelled);
 
-        cancellationToken.ThrowIfCancellationRequested();
+        if (cancellationToken.IsCancellationRequested)
+            return new(ScanResultExportStatus.Cancelled);
         string destinationPath = Path.GetFullPath(dialog.FileName);
         ScanResultExportFormat format = SelectFormat(destinationPath, dialog.FilterIndex);
         string directory = Path.GetDirectoryName(destinationPath)
@@ -63,6 +63,17 @@ public sealed class ScanResultExportService
             directory,
             $".{Path.GetFileName(destinationPath)}.{Guid.NewGuid():N}.tmp");
 
+        return await Task.Run(() => WriteAndPublishAsync(
+            result, destinationPath, temporaryPath, format, cancellationToken)).ConfigureAwait(false);
+    }
+
+    static async Task<ScanResultExportResult> WriteAndPublishAsync(
+        ScanResultManaged result,
+        string destinationPath,
+        string temporaryPath,
+        ScanResultExportFormat format,
+        CancellationToken cancellationToken)
+    {
         try
         {
             await using (var stream = new FileStream(

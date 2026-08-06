@@ -13,7 +13,8 @@ public static class ScanResultExporter
     public static async Task ExportCsvAsync(
         ScanResultManaged result,
         Stream destination,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool escapeFormulas = true)
     {
         ArgumentNullException.ThrowIfNull(destination);
         Validate(result, cancellationToken);
@@ -27,14 +28,16 @@ public static class ScanResultExporter
         await writer.WriteLineAsync("index,path,name,size,flags".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
 
+        var paths = new string?[result.Nodes.Length];
+        var chain = new List<int>();
         for (int index = 0; index < result.Nodes.Length; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             ScanNode node = result.Nodes[index];
             string line = string.Concat(
                 index.ToString(CultureInfo.InvariantCulture), ",",
-                EscapeCsv(BuildPath(result, index)), ",",
-                EscapeCsv(result.Names[index]), ",",
+                EscapeCsv(BuildPath(result, index, paths, chain), escapeFormulas), ",",
+                EscapeCsv(result.Names[index], escapeFormulas), ",",
                 node.Size.ToString(CultureInfo.InvariantCulture), ",",
                 node.Flags.ToString(CultureInfo.InvariantCulture));
             await writer.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
@@ -60,13 +63,15 @@ public static class ScanResultExporter
         json.WriteNumber("elapsedSeconds", result.ElapsedSec);
         json.WriteStartArray("nodes");
 
+        var paths = new string?[result.Nodes.Length];
+        var chain = new List<int>();
         for (int index = 0; index < result.Nodes.Length; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             ScanNode node = result.Nodes[index];
             json.WriteStartObject();
             json.WriteNumber("index", index);
-            json.WriteString("path", BuildPath(result, index));
+            json.WriteString("path", BuildPath(result, index, paths, chain));
             json.WriteString("name", result.Names[index]);
             json.WriteNumber("size", node.Size);
             json.WriteNumber("flags", node.Flags);
@@ -81,38 +86,50 @@ public static class ScanResultExporter
         await json.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    static string EscapeCsv(string value)
+    static string EscapeCsv(string value, bool escapeFormulas)
     {
+        bool formula = escapeFormulas && value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r';
+        if (formula)
+            value = "'" + value;
+
         if (value.IndexOfAny([',', '"', '\r', '\n']) < 0)
-            return value;
+            return formula ? string.Concat('"', value, '"') : value;
 
         return string.Concat('"', value.Replace("\"", "\"\"", StringComparison.Ordinal), '"');
     }
 
-    static string BuildPath(ScanResultManaged result, int nodeIndex)
+    static string BuildPath(
+        ScanResultManaged result,
+        int nodeIndex,
+        string?[] paths,
+        List<int> chain)
     {
-        var segments = new List<string>();
+        if (paths[nodeIndex] is { } cached)
+            return cached;
+
+        chain.Clear();
         uint current = (uint)nodeIndex;
-        while (current != NoNode)
+        while (current != NoNode && paths[current] is null)
         {
-            segments.Add(result.Names[current]);
+            chain.Add((int)current);
             current = result.Nodes[current].Parent;
         }
 
-        segments.Reverse();
-        if (segments.Count == 0)
-            return string.Empty;
-
-        string path = segments[0];
-        for (int i = 1; i < segments.Count; i++)
+        var path = new StringBuilder(current == NoNode ? string.Empty : paths[current]);
+        for (int i = chain.Count - 1; i >= 0; i--)
         {
-            if (path.Length == 0 || path[^1] is '\\' or '/')
-                path += segments[i];
-            else
-                path += Path.DirectorySeparatorChar + segments[i];
+            int index = chain[i];
+            if (path.Length > 0 && path[^1] is not ('\\' or '/'))
+                path.Append(Path.DirectorySeparatorChar);
+            path.Append(result.Names[index]);
+            if ((result.Nodes[index].Flags & ScanNodeFlags.Directory) != 0)
+                paths[index] = path.ToString();
         }
 
-        return path;
+        string resolved = path.ToString();
+        if ((result.Nodes[nodeIndex].Flags & ScanNodeFlags.Directory) != 0)
+            paths[nodeIndex] = resolved;
+        return resolved;
     }
 
     static void Validate(ScanResultManaged result, CancellationToken cancellationToken)
