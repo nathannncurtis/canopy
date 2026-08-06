@@ -7,6 +7,9 @@ namespace SizeMonitor.Controls;
 public partial class SizeTreeView : UserControl
 {
     public event Action<uint>? NodeSelected;
+    public event Action<uint>? NodeActivated;
+    SizeNodeView[] _views = [];
+    ScanResultManaged? _result;
 
     public SizeTreeView()
     {
@@ -15,12 +18,13 @@ public partial class SizeTreeView : UserControl
 
     public void Populate(ScanResultManaged result)
     {
+        _result = result;
         _tree.Items.Clear();
 
         if (result.Nodes.Length == 0) return;
 
-        var views = BuildViewArray(result);
-        var root  = views[0];
+        _views = BuildViewArray(result);
+        var root  = _views[0];
 
         SortChildren(root);
 
@@ -30,6 +34,33 @@ public partial class SizeTreeView : UserControl
         _tree.UpdateLayout();
         if (_tree.ItemContainerGenerator.ContainerFromItem(root) is TreeViewItem tvi)
             tvi.IsExpanded = true;
+    }
+
+    public void SelectNode(uint nodeIndex)
+    {
+        if (_result is null || nodeIndex >= _views.Length) return;
+        var lineage = new Stack<uint>();
+        uint current = nodeIndex;
+        while (current != uint.MaxValue)
+        {
+            lineage.Push(current);
+            current = _result.Nodes[current].Parent;
+        }
+        ItemsControl parent = _tree;
+        TreeViewItem? container = null;
+        while (lineage.TryPop(out uint index))
+        {
+            parent.UpdateLayout();
+            container = parent.ItemContainerGenerator.ContainerFromItem(_views[index]) as TreeViewItem;
+            if (container is null) return;
+            if (lineage.Count > 0) container.IsExpanded = true;
+            parent = container;
+        }
+        if (container is not null)
+        {
+            container.IsSelected = true;
+            container.BringIntoView();
+        }
     }
 
     static SizeNodeView[] BuildViewArray(ScanResultManaged result)
@@ -74,5 +105,17 @@ public partial class SizeTreeView : UserControl
     {
         if (e.NewValue is SizeNodeView view)
             NodeSelected?.Invoke(view.Index);
+    }
+
+    void OnMouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (_tree.SelectedItem is SizeNodeView view) NodeActivated?.Invoke(view.Index);
+    }
+
+    void OnKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter || _tree.SelectedItem is not SizeNodeView view) return;
+        NodeActivated?.Invoke(view.Index);
+        e.Handled = true;
     }
 }

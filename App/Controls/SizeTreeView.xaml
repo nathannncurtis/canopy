@@ -38,5 +38,7 @@
               VirtualizingPanel.IsVirtualizing="True"
               VirtualizingPanel.VirtualizationMode="Recycling"
               ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+              MouseDoubleClick="OnMouseDoubleClick"
+              KeyDown="OnKeyDown"
               SelectedItemChanged="OnSelectedItemChanged" />
 </UserControl>

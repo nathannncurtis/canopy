@@ -99,6 +99,8 @@ public sealed class ScanNavigationTests
         Assert.Equal(@"Combined scan\same", index.GetPath(1));
         Assert.Equal(@"Combined scan\same", index.GetPath(2));
         Assert.False(index.TryFind(@"Combined scan\same", out _));
+        Assert.True(index.IsAmbiguous(@"combined scan/same"));
+        Assert.False(index.IsAmbiguous(@"Combined scan\missing"));
     }
 
     static ScanResultManaged Result() => new()
