@@ -40,6 +40,19 @@ public sealed class DiagnosticBundleTests
     }
 
     [Theory]
+    [InlineData("Access to the path 'D:\\Cases\\Doe, Jane\\chart.pdf' is denied.", " is denied.")]
+    [InlineData("Could not find file 'C:\\Users\\O'Brien\\notes.txt'.", ".")]
+    public void RedactsSingleQuotedExceptionPathsWithoutLosingFailureReason(string log, string suffix)
+    {
+        string redacted = DiagnosticBundle.RedactPaths(log);
+
+        Assert.Contains("'[REDACTED_PATH]'", redacted);
+        Assert.EndsWith(suffix, redacted);
+        Assert.DoesNotContain("chart.pdf", redacted);
+        Assert.DoesNotContain("notes.txt", redacted);
+    }
+
+    [Theory]
     [InlineData("Cannot connect to \\\\fileserver\\patients", "fileserver", "patients")]
     [InlineData("share unreachable: \\\\nas01\\Matter 1234", "nas01", "Matter 1234")]
     [InlineData("\"\\\\fileserver\\patients\"", "fileserver", "patients")]
@@ -144,6 +157,26 @@ public sealed class DiagnosticBundleTests
         {
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
                 DiagnosticBundle.CreateFileAsync(Input(), path, cancellation.Token));
+
+            Assert.Equal("existing", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+            Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.*.tmp"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task PublishFailurePreservesExistingTargetAndRemovesTemporaryFile()
+    {
+        string path = TempPath();
+        await File.WriteAllTextAsync(path, "existing", TestContext.Current.CancellationToken);
+        try
+        {
+            await using (var locked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                Exception? error = await Record.ExceptionAsync(() => DiagnosticBundle.CreateFileAsync(
+                    Input(), path, TestContext.Current.CancellationToken));
+                Assert.True(error is IOException or UnauthorizedAccessException, error?.ToString());
+            }
 
             Assert.Equal("existing", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
             Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.*.tmp"));
