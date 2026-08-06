@@ -8,7 +8,6 @@ public sealed class ScanNavigationIndex
     const uint NoNode = uint.MaxValue;
     readonly ScanResultManaged _result;
     readonly string[] _paths;
-    readonly IReadOnlyList<ScanBreadcrumb>[] _breadcrumbs;
     readonly Dictionary<string, uint> _pathLookup = new(StringComparer.OrdinalIgnoreCase);
     readonly HashSet<string> _ambiguousPaths = new(StringComparer.OrdinalIgnoreCase);
 
@@ -20,10 +19,12 @@ public sealed class ScanNavigationIndex
 
         _result = result;
         _paths = new string[result.Nodes.Length];
-        _breadcrumbs = new IReadOnlyList<ScanBreadcrumb>[result.Nodes.Length];
         var states = new byte[result.Nodes.Length];
         for (uint i = 0; i < result.Nodes.Length; i++)
-            Build(i, states);
+            Validate(i, states);
+        var chain = new List<int>();
+        for (uint i = 0; i < result.Nodes.Length; i++)
+            BuildPath(i, chain);
     }
 
     public int Count => _paths.Length;
@@ -37,7 +38,15 @@ public sealed class ScanNavigationIndex
     public IReadOnlyList<ScanBreadcrumb> GetBreadcrumbs(uint nodeIndex)
     {
         ValidateIndex(nodeIndex);
-        return _breadcrumbs[nodeIndex];
+        var breadcrumbs = new List<ScanBreadcrumb>();
+        uint current = nodeIndex;
+        while (current != NoNode)
+        {
+            breadcrumbs.Add(new(current, _result.Names[current] ?? string.Empty, _paths[current]));
+            current = _result.Nodes[current].Parent;
+        }
+        breadcrumbs.Reverse();
+        return breadcrumbs;
     }
 
     public bool TryFind(string path, out uint nodeIndex)
@@ -51,45 +60,55 @@ public sealed class ScanNavigationIndex
         return _pathLookup.TryGetValue(Normalize(path), out nodeIndex);
     }
 
+    public bool IsAmbiguous(string path) =>
+        !string.IsNullOrWhiteSpace(path) && _ambiguousPaths.Contains(Normalize(path));
+
     public uint GetParent(uint nodeIndex)
     {
         ValidateIndex(nodeIndex);
         return _result.Nodes[nodeIndex].Parent;
     }
 
-    void Build(uint nodeIndex, byte[] states)
+    void Validate(uint nodeIndex, byte[] states)
     {
-        int index = checked((int)nodeIndex);
-        if (states[index] == 2) return;
-        if (states[index] == 1)
-            throw new InvalidDataException("The scan parent topology contains a cycle.");
+        var chain = new List<int>();
+        uint current = nodeIndex;
+        while (current != NoNode)
+        {
+            if (current >= _result.Nodes.Length)
+                throw new InvalidDataException($"Node {nodeIndex} has an invalid parent index {current}.");
+            if (states[current] == 2) break;
+            if (states[current] == 1)
+                throw new InvalidDataException("The scan parent topology contains a cycle.");
+            states[current] = 1;
+            chain.Add((int)current);
+            current = _result.Nodes[current].Parent;
+        }
+        foreach (int index in chain) states[index] = 2;
+    }
 
-        states[index] = 1;
-        uint parent = _result.Nodes[index].Parent;
-        string name = _result.Names[index] ?? string.Empty;
-        List<ScanBreadcrumb> crumbs;
-        if (parent == NoNode)
+    void BuildPath(uint nodeIndex, List<int> chain)
+    {
+        if (_paths[nodeIndex] is not null) return;
+        chain.Clear();
+        uint current = nodeIndex;
+        while (current != NoNode && _paths[current] is null)
         {
-            _paths[index] = Normalize(name);
-            crumbs = [new(nodeIndex, name, _paths[index])];
+            chain.Add((int)current);
+            current = _result.Nodes[current].Parent;
         }
-        else
+        string path = current == NoNode ? string.Empty : _paths[current];
+        for (int i = chain.Count - 1; i >= 0; i--)
         {
-            if (parent >= _result.Nodes.Length)
-                throw new InvalidDataException($"Node {nodeIndex} has an invalid parent index {parent}.");
-            Build(parent, states);
-            _paths[index] = Join(_paths[parent], name);
-            crumbs = [.. _breadcrumbs[parent], new(nodeIndex, name, _paths[index])];
+            int index = chain[i];
+            path = path.Length == 0 ? Normalize(_result.Names[index] ?? string.Empty) : Join(path, _result.Names[index] ?? string.Empty);
+            _paths[index] = path;
+            if (!_ambiguousPaths.Contains(path) && !_pathLookup.TryAdd(path, (uint)index))
+            {
+                _pathLookup.Remove(path);
+                _ambiguousPaths.Add(path);
+            }
         }
-
-        _breadcrumbs[index] = crumbs.AsReadOnly();
-        if (!_ambiguousPaths.Contains(_paths[index]) &&
-            !_pathLookup.TryAdd(_paths[index], nodeIndex))
-        {
-            _pathLookup.Remove(_paths[index]);
-            _ambiguousPaths.Add(_paths[index]);
-        }
-        states[index] = 2;
     }
 
     static string Join(string parent, string child)

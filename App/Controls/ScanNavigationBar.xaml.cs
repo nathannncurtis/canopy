@@ -69,8 +69,11 @@ public partial class ScanNavigationBar : UserControl
         string requestedPath = _pathBox.Text;
         if (!_navigation.Index.TryFind(requestedPath, out uint node))
         {
-            _status.Text = "Path was not found in this scan.";
-            _pathBox.ToolTip = $"'{requestedPath}' was not found. The current location has not changed.";
+            bool ambiguous = _navigation.Index.IsAmbiguous(requestedPath);
+            _status.Text = ambiguous ? "Path matches more than one scanned item." : "Path was not found in this scan.";
+            _pathBox.ToolTip = ambiguous
+                ? $"'{requestedPath}' is ambiguous. Select the intended item in the tree."
+                : $"'{requestedPath}' was not found. The current location has not changed.";
             _pathBox.Focus();
             _pathBox.SelectAll();
             return;
