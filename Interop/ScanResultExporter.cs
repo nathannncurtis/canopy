@@ -28,7 +28,7 @@ public static class ScanResultExporter
         await writer.WriteLineAsync("index,path,name,size,flags".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
 
-        var paths = new string?[result.Nodes.Length];
+        var paths = new Dictionary<uint, string>(capacity: Math.Min(result.Nodes.Length, 4096));
         var chain = new List<int>();
         for (int index = 0; index < result.Nodes.Length; index++)
         {
@@ -63,7 +63,7 @@ public static class ScanResultExporter
         json.WriteNumber("elapsedSeconds", result.ElapsedSec);
         json.WriteStartArray("nodes");
 
-        var paths = new string?[result.Nodes.Length];
+        var paths = new Dictionary<uint, string>(capacity: Math.Min(result.Nodes.Length, 4096));
         var chain = new List<int>();
         for (int index = 0; index < result.Nodes.Length; index++)
         {
@@ -93,23 +93,23 @@ public static class ScanResultExporter
             value = "'" + value;
 
         if (value.IndexOfAny([',', '"', '\r', '\n']) < 0)
-            return formula ? string.Concat('"', value, '"') : value;
+            return formula ? string.Concat("\"", value, "\"") : value;
 
-        return string.Concat('"', value.Replace("\"", "\"\"", StringComparison.Ordinal), '"');
+        return string.Concat("\"", value.Replace("\"", "\"\"", StringComparison.Ordinal), "\"");
     }
 
     static string BuildPath(
         ScanResultManaged result,
         int nodeIndex,
-        string?[] paths,
+        Dictionary<uint, string> paths,
         List<int> chain)
     {
-        if (paths[nodeIndex] is { } cached)
+        if (paths.TryGetValue((uint)nodeIndex, out string? cached))
             return cached;
 
         chain.Clear();
         uint current = (uint)nodeIndex;
-        while (current != NoNode && paths[current] is null)
+        while (current != NoNode && !paths.ContainsKey(current))
         {
             chain.Add((int)current);
             current = result.Nodes[current].Parent;
@@ -122,14 +122,11 @@ public static class ScanResultExporter
             if (path.Length > 0 && path[^1] is not ('\\' or '/'))
                 path.Append(Path.DirectorySeparatorChar);
             path.Append(result.Names[index]);
-            if ((result.Nodes[index].Flags & ScanNodeFlags.Directory) != 0)
-                paths[index] = path.ToString();
+            if ((result.Nodes[index].Flags & ScanNodeFlags.Directory) != 0 && paths.Count < 4096)
+                paths[(uint)index] = path.ToString();
         }
 
-        string resolved = path.ToString();
-        if ((result.Nodes[nodeIndex].Flags & ScanNodeFlags.Directory) != 0)
-            paths[nodeIndex] = resolved;
-        return resolved;
+        return paths.TryGetValue((uint)nodeIndex, out string? resolved) ? resolved : path.ToString();
     }
 
     static void Validate(ScanResultManaged result, CancellationToken cancellationToken)
