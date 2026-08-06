@@ -35,8 +35,24 @@ public sealed class ScanResultCombinerTests
         Assert.Equal(1u, combined.Nodes[2].Parent);
         Assert.Equal(3u, combined.Nodes[4].Parent);
         Assert.Equal(30ul, combined.TotalBytes);
+        Assert.Equal(30ul, combined.Nodes[0].Size);
         Assert.Equal(2ul, combined.FileCount);
         Assert.Equal(3ul, combined.DirCount);
+    }
+
+    [Fact]
+    public void TargetCombinationUsesAbsoluteTargetRoots()
+    {
+        string firstPath = Path.GetFullPath("one-target");
+        string secondPath = Path.GetFullPath("two-target");
+        ScanResultManaged combined = ScanResultCombiner.CombineTargets([
+            new(firstPath, ScannerKind.Directory, Result("ambiguous", "child", 10)),
+            new(secondPath, ScannerKind.Directory, Result("ambiguous", "leaf", 20)),
+        ]);
+
+        Assert.Equal(firstPath, combined.Names[1]);
+        Assert.Equal(secondPath, combined.Names[3]);
+        Assert.Equal((uint)firstPath.Length, combined.Nodes[1].NameLen);
     }
 
     [Fact]
