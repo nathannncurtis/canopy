@@ -2,6 +2,7 @@ using System.Security.Principal;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Input;
 using SizeMonitor.Controls;
 using SizeMonitor.Helpers;
 using SizeMonitor.Interop;
@@ -32,6 +33,7 @@ public partial class MainWindow : FluentWindow
     {
         InitializeComponent();
         SetupControls();
+        AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(OnWindowNavigationKeyDown));
         Loaded += OnLoaded;
     }
 
@@ -95,9 +97,6 @@ public partial class MainWindow : FluentWindow
         _btnPause.IsEnabled     = true;
         _btnCancel.IsEnabled    = true;
         _emptyState.Visibility  = Visibility.Collapsed;
-        _result                 = null;
-        _targets                = [];
-        _searchView.SetResult(null);
         _statSize.Text          = "Scanning...";
         _statFiles.Text         = "";
         _statTime.Text          = "";
@@ -106,10 +105,6 @@ public partial class MainWindow : FluentWindow
         _statScanner.Text       = "";
         _statVolume.Text        = "";
         _statSelection.Text     = "";
-        _metrics                = null;
-        _navigation             = null;
-        _navigationBar.SetNavigation(null);
-        _emptyItemsView.SetResult(null);
         _saveSnapshotMenuItem.IsEnabled = false;
         _exportMenuItem.IsEnabled = false;
         _openSnapshotMenuItem.IsEnabled = false;
@@ -124,36 +119,60 @@ public partial class MainWindow : FluentWindow
         _cts = new CancellationTokenSource();
         Stopwatch scanClock = Stopwatch.StartNew();
         _scanClock = scanClock;
+        var targetProgress = new Dictionary<string, ScanProgress>(StringComparer.OrdinalIgnoreCase);
 
         var progress = new Progress<TargetScanProgress>(p =>
         {
-            _statFiles.Text = $"{p.Current.FilesVisited:N0} files, {p.Current.DirsVisited:N0} dirs";
+            targetProgress[p.Path] = p.Current;
+            ulong files = SumSaturating(targetProgress.Values.Select(value => value.FilesVisited));
+            ulong dirs = SumSaturating(targetProgress.Values.Select(value => value.DirsVisited));
+            ulong bytes = SumSaturating(targetProgress.Values.Select(value => value.BytesSeen));
+            _statFiles.Text = $"{files:N0} files, {dirs:N0} dirs · {SizeFormatter.FormatBytes(bytes)} scanned";
             _statCurrent.Text = p.Path;
+            _statTime.Text = $"Elapsed {scanClock.Elapsed:g}";
+            _statTimeSep.Visibility = Visibility.Visible;
             if (p.CompletedTargets > 0)
             {
                 _scanProgress.IsIndeterminate = false;
                 _scanProgress.Value = 100d * p.CompletedTargets / p.TotalTargets;
                 double secondsPerTarget = scanClock.Elapsed.TotalSeconds / p.CompletedTargets;
                 double remaining = secondsPerTarget * (p.TotalTargets - p.CompletedTargets);
-                _statTime.Text = remaining > 0 ? $"ETA {TimeSpan.FromSeconds(remaining):g}" : "Finishing...";
-                _statTimeSep.Visibility = Visibility.Visible;
+                _statTime.Text = remaining > 0
+                    ? $"Elapsed {scanClock.Elapsed:g} · ETA {TimeSpan.FromSeconds(remaining):g}"
+                    : $"Elapsed {scanClock.Elapsed:g} · Finishing...";
             }
         });
 
         try
         {
             _multiSession = new MultiScanSession(Math.Min(paths.Length, Math.Max(1, Environment.ProcessorCount / 2)));
-            IReadOnlyList<TargetScanResult> targetResults =
-                await _multiSession.ScanAsync(paths, progress, _cts.Token, scanOptions);
+            IReadOnlyList<TargetScanOutcome> outcomes =
+                await _multiSession.ScanOutcomesAsync(paths, progress, _cts.Token, scanOptions);
+            TargetScanResult[] targetResults = outcomes.Where(outcome => outcome.Succeeded)
+                .Select(outcome => new TargetScanResult(outcome.Path, outcome.Scanner, outcome.Result!))
+                .ToArray();
+            TargetScanOutcome[] failures = outcomes.Where(outcome => !outcome.Succeeded).ToArray();
+            if (targetResults.Length == 0)
+                throw new AggregateException("Every scan target failed.",
+                    failures.Select(failure => failure.Error ?? new IOException($"Scan failed: {failure.Path}")));
             ScanResultManaged result = ScanResultCombiner.CombineTargets(targetResults);
             if (_locationHistory is not null)
             {
-                foreach (string path in paths)
-                    await _locationHistory.TouchAsync(path, cancellationToken: _cts.Token);
+                foreach (TargetScanResult target in targetResults)
+                    await _locationHistory.TouchAsync(target.Path, cancellationToken: _cts.Token);
                 _locationHistoryView.RefreshLocations();
             }
             if (generation == _resultGeneration)
+            {
                 await OnScanCompleteAsync(result, targetResults, generation);
+                if (failures.Length > 0)
+                {
+                    foreach (TargetScanOutcome failure in failures)
+                        Logger.Error($"scan target failed: {failure.Path}",
+                            failure.Error ?? new IOException("Unknown scan failure."));
+                    _statCurrent.Text = $"{failures.Length:N0} of {outcomes.Count:N0} targets failed; successful results are shown.";
+                }
+            }
         }
         catch (OperationCanceledException)
         {
@@ -162,7 +181,8 @@ public partial class MainWindow : FluentWindow
             _statTime.Text          = "";
             _statTimeSep.Visibility = Visibility.Collapsed;
             _statCurrent.Text       = "";
-            _emptyState.Visibility  = Visibility.Visible;
+            _emptyState.Visibility  = _result is { Nodes.Length: > 0 }
+                ? Visibility.Collapsed : Visibility.Visible;
         }
         catch (Exception ex)
         {
@@ -233,9 +253,20 @@ public partial class MainWindow : FluentWindow
             : $"{targets.Count} targets ({mftCount} MFT, {directoryCount} directory)";
         _statScannerSep.Visibility = Visibility.Visible;
         _statCurrent.Text = "";
-        UpdateVolumeStatus(targets);
-
         await DisplayResultAsync(result, generation);
+        await UpdateVolumeStatusAsync(targets, generation);
+    }
+
+    void OnWindowNavigationKeyDown(object sender, KeyEventArgs e)
+    {
+        if ((Keyboard.Modifiers & ModifierKeys.Alt) == 0) return;
+        bool handled = e.SystemKey switch
+        {
+            Key.Left => _navigationBar.GoBack(),
+            Key.Right => _navigationBar.GoForward(),
+            _ => false,
+        };
+        if (handled) e.Handled = true;
     }
 
     async Task<bool> DisplayResultAsync(ScanResultManaged result, int generation)
@@ -270,45 +301,55 @@ public partial class MainWindow : FluentWindow
         return true;
     }
 
-    void UpdateVolumeStatus(IReadOnlyList<TargetScanResult> targets)
+    async Task UpdateVolumeStatusAsync(IReadOnlyList<TargetScanResult> targets, int generation)
     {
-        try
+        string[] roots = targets
+            .Select(target => Path.GetPathRoot(Path.GetFullPath(target.Path)) ?? target.Path)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var volumes = new List<VolumeStorageInfo>();
+        foreach (string root in roots)
         {
-            VolumeStorageInfo[] volumes = targets
-                .Select(target => VolumeStorageInfo.Read(target.Path))
-                .GroupBy(volume => volume.RootPath, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.First())
-                .ToArray();
-            if (volumes.Length == 0) return;
-
-            if (volumes.Length == 1)
+            try
             {
-                VolumeStorageInfo volume = volumes[0];
-                string identity = string.IsNullOrWhiteSpace(volume.Label)
-                    ? volume.RootPath
-                    : $"{volume.Label} ({volume.RootPath})";
-                _statVolume.Text =
-                    $"{identity} · {volume.FileSystem} · " +
-                    $"{SizeFormatter.FormatBytes(volume.UsedBytes)} used of " +
-                    $"{SizeFormatter.FormatBytes(volume.TotalBytes)} " +
-                    $"({SizeFormatter.FormatBytes(volume.FreeBytes)} free) · " +
-                    $"{SizeFormatter.FormatBytes(volume.ClusterSize)} clusters · " +
-                    $"serial {volume.SerialNumberText}";
-                return;
+                VolumeStorageInfo volume = await Task.Run(() => VolumeStorageInfo.Read(root));
+                if (!volumes.Any(item => item.RootPath.Equals(volume.RootPath, StringComparison.OrdinalIgnoreCase)))
+                    volumes.Add(volume);
             }
-
-            ulong total = SumSaturating(volumes.Select(volume => volume.TotalBytes));
-            ulong free = SumSaturating(volumes.Select(volume => volume.FreeBytes));
-            ulong used = total >= free ? total - free : 0;
-            _statVolume.Text =
-                $"{volumes.Length} volumes · {SizeFormatter.FormatBytes(used)} used of " +
-                $"{SizeFormatter.FormatBytes(total)} ({SizeFormatter.FormatBytes(free)} free)";
+            catch (Exception ex)
+            {
+                Logger.Error($"could not read volume information for {root}", ex);
+            }
         }
-        catch (Exception ex)
+        if (generation != _resultGeneration) return;
+        if (volumes.Count == 0)
         {
-            Logger.Error("could not read volume information", ex);
-            _statVolume.Text = "Volume information unavailable";
+            _statVolume.Text = roots.Length == 0 ? string.Empty : "Volume information unavailable";
+            return;
         }
+
+        if (volumes.Count == 1)
+        {
+            VolumeStorageInfo volume = volumes[0];
+            string identity = string.IsNullOrWhiteSpace(volume.Label)
+                ? volume.RootPath
+                : $"{volume.Label} ({volume.RootPath})";
+            _statVolume.Text =
+                $"{identity} · {volume.FileSystem} · " +
+                $"{SizeFormatter.FormatBytes(volume.UsedBytes)} used of " +
+                $"{SizeFormatter.FormatBytes(volume.TotalBytes)} " +
+                $"({SizeFormatter.FormatBytes(volume.FreeBytes)} free) · " +
+                $"{SizeFormatter.FormatBytes(volume.ClusterSize)} clusters · " +
+                $"serial {volume.SerialNumberText}";
+            return;
+        }
+
+        ulong total = SumSaturating(volumes.Select(volume => volume.TotalBytes));
+        ulong free = SumSaturating(volumes.Select(volume => volume.FreeBytes));
+        ulong used = total >= free ? total - free : 0;
+        _statVolume.Text =
+            $"{volumes.Count} volumes · {SizeFormatter.FormatBytes(used)} used of " +
+            $"{SizeFormatter.FormatBytes(total)} ({SizeFormatter.FormatBytes(free)} free)";
     }
 
     static ulong SumSaturating(IEnumerable<ulong> values)
