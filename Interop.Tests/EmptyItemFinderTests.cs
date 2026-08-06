@@ -22,7 +22,7 @@ public sealed class EmptyItemFinderTests
             ["root", "empty", "populated", "zero.dat", "data.dat", "nested-empty"]);
 
         IReadOnlyList<EmptyScanItem> items = EmptyItemFinder.Find(
-            result, TestContext.Current.CancellationToken);
+            result, UnsafeOptions(), TestContext.Current.CancellationToken);
 
         Assert.Equal([1u, 3u, 5u], items.Select(item => item.NodeIndex));
         Assert.Equal(
@@ -42,7 +42,7 @@ public sealed class EmptyItemFinderTests
             ["root", "folder", "empty.txt"]);
 
         IReadOnlyList<EmptyScanItem> items = EmptyItemFinder.Find(
-            result, TestContext.Current.CancellationToken);
+            result, UnsafeOptions(), TestContext.Current.CancellationToken);
 
         EmptyScanItem item = Assert.Single(items);
         Assert.Equal(2u, item.NodeIndex);
@@ -57,7 +57,7 @@ public sealed class EmptyItemFinderTests
             ["first", "empty", "nested", "root"]);
 
         IReadOnlyList<EmptyScanItem> items = EmptyItemFinder.Find(
-            result, TestContext.Current.CancellationToken);
+            result, UnsafeOptions(), TestContext.Current.CancellationToken);
 
         Assert.Equal([0u, 1u, 2u], items.Select(item => item.NodeIndex));
         Assert.Equal(Path.Combine("root", "first"), items[0].RelativePath);
@@ -102,6 +102,30 @@ public sealed class EmptyItemFinderTests
             EmptyItemFinder.Find(Result(nodes, names), cancellation.Token));
     }
 
+    [Fact]
+    public void SafeDefaultsDoNotClaimAllocationOrChildlessnessProvesEmpty()
+    {
+        ScanResultManaged result = Result(
+            [Directory(0, None), File(0, 0), Directory(0, 0)],
+            ["root", "resident.txt", "possibly-unreadable"]);
+
+        Assert.Empty(EmptyItemFinder.Find(result,
+            cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void AlwaysExcludesLinksAndReparsePoints()
+    {
+        ScanNode linkedFile = File(0, None);
+        linkedFile.Flags = ScanNodeFlags.Symlink;
+        ScanNode junction = Directory(0, None);
+        junction.Flags |= ScanNodeFlags.Reparse;
+
+        Assert.Empty(EmptyItemFinder.Find(
+            Result([linkedFile, junction], ["link", "junction"]), UnsafeOptions(),
+            TestContext.Current.CancellationToken));
+    }
+
     static ScanResultManaged Result(ScanNode[] nodes, string[] names) => new()
     {
         Nodes = nodes,
@@ -123,5 +147,11 @@ public sealed class EmptyItemFinderTests
         Parent = parent,
         FirstChild = None,
         NextSibling = None,
+    };
+
+    static EmptyItemFinderOptions UnsafeOptions() => new()
+    {
+        IncludeZeroAllocationFiles = true,
+        AssumeCompleteUnfilteredDirectoryEnumeration = true,
     };
 }
