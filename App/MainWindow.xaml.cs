@@ -15,6 +15,7 @@ public partial class MainWindow : FluentWindow
     MultiScanSession?        _multiSession;
     CancellationTokenSource? _cts;
     ScanResultManaged?       _result;
+    ScanResultManaged?       _previousResult;
     ScanResultMetrics?       _metrics;
     ScanNavigation?          _navigation;
     IReadOnlyList<TargetScanResult> _targets = [];
@@ -293,6 +294,8 @@ public partial class MainWindow : FluentWindow
         });
         if (generation != _resultGeneration) return false;
 
+        if (_result is not null && !ReferenceEquals(_result, result))
+            _previousResult = _result;
         _result = result;
         _targets = targets ?? [];
         if (_shellActionsMenu is not null) _shellActionsMenu.ItemPath = null;
@@ -303,6 +306,9 @@ public partial class MainWindow : FluentWindow
         _navigationBar.SetNavigation(_navigation);
         _emptyItemsView.SetResult(result);
         _distributionView.SetResult(result);
+        _anomaliesView.SetResult(result);
+        _comparisonView.SetResults(_previousResult, result);
+        _duplicatesView.SetRoots((targets ?? []).Select(target => target.Path));
         bool hasNodes = result.Nodes.Length > 0;
         _saveSnapshotMenuItem.IsEnabled = true;
         _exportMenuItem.IsEnabled = hasNodes;
@@ -469,6 +475,35 @@ public partial class MainWindow : FluentWindow
         _navigationBar.NavigateTo(nodeIndex);
         ActivateNode(nodeIndex);
         _contentTabs.SelectedIndex = 0;
+    }
+
+    void OnAnomalyNodeActivated(uint nodeIndex)
+    {
+        _navigationBar.NavigateTo(nodeIndex);
+        ActivateNode(nodeIndex);
+        _contentTabs.SelectedIndex = 0;
+    }
+
+    void OnComparisonNodeActivated(ComparisonNodeActivation activation)
+    {
+        if (!activation.IsCurrentScan)
+        {
+            _statCurrent.Text = "This item belongs to the previous scan; load it to explore that node.";
+            return;
+        }
+        _navigationBar.NavigateTo(activation.NodeIndex);
+        ActivateNode(activation.NodeIndex);
+        _contentTabs.SelectedIndex = 0;
+    }
+
+    void OnDuplicatePathActivated(string path)
+    {
+        try { ShellItemActions.Open(path); }
+        catch (Exception ex)
+        {
+            Logger.Error($"could not open duplicate path: {path}", ex);
+            _statCurrent.Text = $"Open failed: {ex.Message}";
+        }
     }
 
     string? ResolveFilesystemPath(uint combinedNodeIndex)
