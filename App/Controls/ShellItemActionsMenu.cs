@@ -1,5 +1,7 @@
 using System.IO;
+using System.ComponentModel;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using SizeMonitor.Helpers;
 
@@ -29,6 +31,7 @@ public sealed class ShellItemActionsMenu : ContextMenu
     readonly MenuItem _copyPath;
     readonly MenuItem _properties;
     readonly MenuItem _elevatedTerminal;
+    int _availabilityGeneration;
 
     public ShellItemActionsMenu()
     {
@@ -44,7 +47,7 @@ public sealed class ShellItemActionsMenu : ContextMenu
             (_, _) => Run("Open elevated terminal", ShellItemActions.OpenElevatedTerminal));
 
         Opened += (_, _) => RefreshAvailability();
-        RefreshAvailability();
+        SetAvailability(false, false);
     }
 
     public string? ItemPath
@@ -59,25 +62,48 @@ public sealed class ShellItemActionsMenu : ContextMenu
     public void RefreshAvailability()
     {
         string? path = ItemPath;
-        bool exists = false;
-        bool hasContainingFolder = false;
-        if (!string.IsNullOrWhiteSpace(path))
+        int generation = Interlocked.Increment(ref _availabilityGeneration);
+        if (string.IsNullOrWhiteSpace(path))
         {
-            try
-            {
-                string fullPath = Path.GetFullPath(path);
-                bool isFile = File.Exists(fullPath);
-                bool isDirectory = Directory.Exists(fullPath);
-                exists = isFile || isDirectory;
-                hasContainingFolder = exists &&
-                    (isFile || Path.GetDirectoryName(fullPath) is { } parent && Directory.Exists(parent));
-            }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                exists = false;
-            }
+            SetAvailability(false, false);
+            return;
         }
 
+        // Actions validate again at invocation; optimistic state avoids blocking selection changes.
+        SetAvailability(true, true);
+        _ = ProbeAvailabilityAsync(path, generation);
+    }
+
+    async Task ProbeAvailabilityAsync(string path, int generation)
+    {
+        (bool Exists, bool HasContainingFolder) availability = await Task.Run(() => Probe(path));
+        if (generation != Volatile.Read(ref _availabilityGeneration) ||
+            !string.Equals(path, ItemPath, StringComparison.Ordinal))
+            return;
+        SetAvailability(availability.Exists, availability.HasContainingFolder);
+    }
+
+    static (bool Exists, bool HasContainingFolder) Probe(string path)
+    {
+        try
+        {
+            string fullPath = Path.GetFullPath(path);
+            FileAttributes attributes = File.GetAttributes(fullPath);
+            bool isFile = (attributes & FileAttributes.Directory) == 0;
+            return (true, isFile || Path.GetDirectoryName(fullPath) is { } parent && Directory.Exists(parent));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return (true, true);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
+        {
+            return (false, false);
+        }
+    }
+
+    void SetAvailability(bool exists, bool hasContainingFolder)
+    {
         _open.IsEnabled = exists;
         _containingFolder.IsEnabled = hasContainingFolder;
         _copyPath.IsEnabled = exists;
@@ -90,8 +116,8 @@ public sealed class ShellItemActionsMenu : ContextMenu
         var item = new MenuItem
         {
             Header = header,
-            Tag = automationId,
         };
+        AutomationProperties.SetAutomationId(item, automationId);
         item.Click += handler;
         Items.Add(item);
         return item;
@@ -107,8 +133,13 @@ public sealed class ShellItemActionsMenu : ContextMenu
         {
             operation(path);
         }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            // The user dismissed a consent or file-association prompt.
+        }
         catch (Exception ex)
         {
+            Logger.Error($"Shell action '{action}' failed for '{path}'", ex);
             RefreshAvailability();
             ActionFailed?.Invoke(this, new(action, path, ex));
         }
@@ -124,13 +155,23 @@ public sealed class ShellItemActionsMenu : ContextMenu
         {
             await ShellItemActions.CopyFullPathAsync(path);
         }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            // The user dismissed a shell prompt.
+        }
         catch (Exception ex)
         {
+            Logger.Error($"Shell action 'Copy full path' failed for '{path}'", ex);
             RefreshAvailability();
             ActionFailed?.Invoke(this, new("Copy full path", path, ex));
         }
     }
 
-    static void OnItemPathChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args) =>
-        ((ShellItemActionsMenu)sender).RefreshAvailability();
+    static void OnItemPathChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
+    {
+        var menu = (ShellItemActionsMenu)sender;
+        Interlocked.Increment(ref menu._availabilityGeneration);
+        menu.SetAvailability(!string.IsNullOrWhiteSpace((string?)args.NewValue),
+            !string.IsNullOrWhiteSpace((string?)args.NewValue));
+    }
 }
