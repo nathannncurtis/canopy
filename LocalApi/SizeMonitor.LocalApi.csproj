@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>canopy-local-api</AssemblyName>
+    <RootNamespace>SizeMonitor.LocalApi</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Interop\SizeMonitor.Interop.csproj" />
+  </ItemGroup>
+  <Target Name="CopyNativeCore" AfterTargets="Build"
+          Condition="Exists('..\Core\build\bin\$(Configuration)\Canopy.Core.dll')">
+    <Copy SourceFiles="..\Core\build\bin\$(Configuration)\Canopy.Core.dll"
+          DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
