@@ -76,6 +76,7 @@ public partial class MainWindow : FluentWindow
 
     async void OnScan(object sender, RoutedEventArgs e)
     {
+        if (_scanInProgress) return;
         string[] paths = ParsePaths(_pathBox.Text);
         if (paths.Length == 0) return;
 
@@ -105,6 +106,8 @@ public partial class MainWindow : FluentWindow
         _statScanner.Text       = "";
         _statVolume.Text        = "";
         _statSelection.Text     = "";
+        _distributionView.SetResult(null);
+        if (_shellActionsMenu is not null) _shellActionsMenu.ItemPath = null;
         _saveSnapshotMenuItem.IsEnabled = false;
         _exportMenuItem.IsEnabled = false;
         _openSnapshotMenuItem.IsEnabled = false;
@@ -156,15 +159,24 @@ public partial class MainWindow : FluentWindow
                 throw new AggregateException("Every scan target failed.",
                     failures.Select(failure => failure.Error ?? new IOException($"Scan failed: {failure.Path}")));
             ScanResultManaged result = ScanResultCombiner.CombineTargets(targetResults);
-            if (_locationHistory is not null)
-            {
-                foreach (TargetScanResult target in targetResults)
-                    await _locationHistory.TouchAsync(target.Path, cancellationToken: _cts.Token);
-                _locationHistoryView.RefreshLocations();
-            }
             if (generation == _resultGeneration)
             {
                 await OnScanCompleteAsync(result, targetResults, generation);
+                if (_locationHistory is not null)
+                {
+                    try
+                    {
+                        foreach (TargetScanResult target in targetResults)
+                            await _locationHistory.TouchAsync(target.Path, cancellationToken: CancellationToken.None);
+                        _locationHistoryView.RefreshLocations();
+                    }
+                    catch (Exception historyError) when (historyError is IOException or UnauthorizedAccessException
+                                                          or InvalidDataException or ArgumentException)
+                    {
+                        Logger.Error("could not update location history", historyError);
+                        _statCurrent.Text = $"Scan complete; location history was not updated: {historyError.Message}";
+                    }
+                }
                 if (failures.Length > 0)
                 {
                     foreach (TargetScanOutcome failure in failures)
@@ -202,7 +214,7 @@ public partial class MainWindow : FluentWindow
             _openSnapshotMenuItem.IsEnabled = true;
             _saveSnapshotMenuItem.IsEnabled = _result is not null;
             _exportMenuItem.IsEnabled = _result is { Nodes.Length: > 0 };
-            _diagnosticsMenuItem.IsEnabled = !_diagnosticsInProgress;
+            _diagnosticsMenuItem.IsEnabled = !_diagnosticsInProgress && !_scanInProgress;
             _scanProgress.Visibility = Visibility.Collapsed;
             if (_multiSession is not null)
                 await _multiSession.DisposeAsync();
@@ -241,7 +253,6 @@ public partial class MainWindow : FluentWindow
 
     async Task OnScanCompleteAsync(ScanResultManaged result, IReadOnlyList<TargetScanResult> targets, int generation)
     {
-        _targets = targets;
         _statSize.Text          = Helpers.SizeFormatter.FormatBytes(result.TotalBytes);
         _statFiles.Text         = $"{result.FileCount:N0} files, {result.DirCount:N0} dirs";
         _statTime.Text          = $"{result.ElapsedSec:F1}s";
@@ -253,7 +264,7 @@ public partial class MainWindow : FluentWindow
             : $"{targets.Count} targets ({mftCount} MFT, {directoryCount} directory)";
         _statScannerSep.Visibility = Visibility.Visible;
         _statCurrent.Text = "";
-        await DisplayResultAsync(result, generation);
+        await DisplayResultAsync(result, generation, targets);
         await UpdateVolumeStatusAsync(targets, generation);
     }
 
@@ -269,7 +280,8 @@ public partial class MainWindow : FluentWindow
         if (handled) e.Handled = true;
     }
 
-    async Task<bool> DisplayResultAsync(ScanResultManaged result, int generation)
+    async Task<bool> DisplayResultAsync(ScanResultManaged result, int generation,
+        IReadOnlyList<TargetScanResult>? targets = null)
     {
         (ScanResultMetrics Metrics, ScanNavigation? Navigation) derived = await Task.Run(() =>
         {
@@ -282,6 +294,8 @@ public partial class MainWindow : FluentWindow
         if (generation != _resultGeneration) return false;
 
         _result = result;
+        _targets = targets ?? [];
+        if (_shellActionsMenu is not null) _shellActionsMenu.ItemPath = null;
         _metrics = derived.Metrics;
         _navigation = derived.Navigation;
         _treeView?.Populate(result);
@@ -420,6 +434,7 @@ public partial class MainWindow : FluentWindow
 
     void OnTreeNodeSelected(uint nodeIndex)
     {
+        if (_synchronizingTreeSelection) return;
         if (_result == null) return;
         if (_shellActionsMenu is not null)
             _shellActionsMenu.ItemPath = ResolveFilesystemPath(nodeIndex);
@@ -432,7 +447,6 @@ public partial class MainWindow : FluentWindow
 
     void OnTreeNodeActivated(uint nodeIndex)
     {
-        if (_synchronizingTreeSelection) return;
         _navigationBar.NavigateTo(nodeIndex);
         ActivateNode(nodeIndex, selectTree: false);
     }
@@ -494,6 +508,7 @@ public partial class MainWindow : FluentWindow
 
     void OnHistoryPathActivated(string path)
     {
+        if (_scanInProgress) return;
         _pathBox.Text = path;
         _contentTabs.SelectedIndex = 0;
         OnScan(_btnScan, new RoutedEventArgs());
@@ -545,7 +560,6 @@ public partial class MainWindow : FluentWindow
         }
         finally
         {
-            _scanInProgress = false;
             _exportMenuItem.IsEnabled = _result is not null && !_scanInProgress;
         }
     }
@@ -602,7 +616,7 @@ public partial class MainWindow : FluentWindow
         finally
         {
             _openSnapshotMenuItem.IsEnabled = !_scanInProgress;
-            _diagnosticsMenuItem.IsEnabled = !_diagnosticsInProgress;
+            _diagnosticsMenuItem.IsEnabled = !_diagnosticsInProgress && !_scanInProgress;
         }
     }
 

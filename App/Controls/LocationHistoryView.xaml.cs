@@ -138,14 +138,13 @@ public partial class LocationHistoryView : UserControl
             _status.Text = "Location history is unavailable.";
             return;
         }
-        await RunOperationAsync(async token =>
+        await RunOperationAsync(token =>
         {
             LocationHistoryStore? store = _store;
-            if (store is null || !TryNormalizeInput(path, out string normalized)) return;
-            await store.TouchAsync(normalized, cancellationToken: token);
-            RefreshLocations();
+            if (store is null || !TryNormalizeInput(path, out string normalized)) return Task.CompletedTask;
             _pathBox.Text = normalized;
             PathActivated?.Invoke(normalized);
+            return Task.CompletedTask;
         });
     }
 
