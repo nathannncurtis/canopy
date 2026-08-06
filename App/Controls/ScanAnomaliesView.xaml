@@ -1,0 +1,70 @@
+<UserControl x:Class="SizeMonitor.Controls.ScanAnomaliesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="Scan path anomalies">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <WrapPanel Grid.Row="0" Margin="0,0,0,8" VerticalAlignment="Center">
+            <Label Content="Depth over:" Target="{Binding ElementName=_depthThreshold}" />
+            <TextBox x:Name="_depthThreshold" Width="72" Text="32" Margin="0,0,12,0"
+                     ToolTip="Flag nodes deeper than this tree depth"
+                     AutomationProperties.Name="Deep hierarchy threshold" />
+            <Label Content="Name length over:" Target="{Binding ElementName=_nameThreshold}" />
+            <TextBox x:Name="_nameThreshold" Width="72" Text="255" Margin="0,0,12,0"
+                     ToolTip="Flag names longer than this character count"
+                     AutomationProperties.Name="Long name threshold" />
+            <Label Content="Relative path over:" Target="{Binding ElementName=_pathThreshold}" />
+            <TextBox x:Name="_pathThreshold" Width="72" Text="260" Margin="0,0,12,0"
+                     ToolTip="Flag scan-relative tree paths longer than this character count"
+                     AutomationProperties.Name="Relative path length threshold" />
+            <Button Content="Analyze" Padding="14,4" Click="OnAnalyze"
+                    ToolTip="Analyze the current scan using these thresholds"
+                    AutomationProperties.Name="Analyze scan anomalies" />
+            <Label Content="Show:" Margin="16,0,0,0" Target="{Binding ElementName=_kindFilter}" />
+            <ComboBox x:Name="_kindFilter" Width="190" SelectedIndex="0"
+                      SelectionChanged="OnKindChanged"
+                      ToolTip="Filter anomaly results by type"
+                      AutomationProperties.Name="Anomaly kind filter">
+                <ComboBoxItem Content="All anomaly kinds" />
+                <ComboBoxItem Content="Deep hierarchy" />
+                <ComboBoxItem Content="Long names" />
+                <ComboBoxItem Content="Long relative paths" />
+                <ComboBoxItem Content="Troublesome Windows names" />
+            </ComboBox>
+        </WrapPanel>
+
+        <TextBlock Grid.Row="1" Margin="0,0,0,8" TextWrapping="Wrap"
+                   Text="Path lengths are scan-relative, not absolute MAX_PATH measurements. The scan result contains no timestamps or history, so old, recent-large, and rapidly-growing files cannot be detected here."
+                   ToolTip="Limitations of anomaly detection"
+                   AutomationProperties.Name="Anomaly detection limitations" />
+
+        <TextBlock Grid.Row="2" x:Name="_status" Margin="0,0,0,8"
+                   Text="Run a scan to analyze path anomalies."
+                   AutomationProperties.LiveSetting="Polite"
+                   AutomationProperties.Name="Anomaly analysis status" />
+
+        <DataGrid Grid.Row="3" x:Name="_items" AutoGenerateColumns="False"
+                  IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow"
+                  CanUserAddRows="False" CanUserDeleteRows="False"
+                  EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                  VirtualizingPanel.IsVirtualizing="True"
+                  VirtualizingPanel.VirtualizationMode="Recycling"
+                  ScrollViewer.CanContentScroll="True"
+                  MouseDoubleClick="OnItemDoubleClick"
+                  ToolTip="Double-click an anomaly to activate its scan node"
+                  AutomationProperties.Name="Scan anomalies">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Index" Binding="{Binding NodeIndex}" Width="75" />
+                <DataGridTextColumn Header="Kind" Binding="{Binding Kind}" Width="190" />
+                <DataGridTextColumn Header="Relative path" Binding="{Binding Path}" Width="*" />
+                <DataGridTextColumn Header="Details" Binding="{Binding Detail}" Width="280" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>
