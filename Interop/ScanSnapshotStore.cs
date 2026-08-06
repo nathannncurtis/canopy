@@ -9,7 +9,10 @@ public static class ScanSnapshotStore
     static readonly byte[] Magic = "CANOPY\0S"u8.ToArray();
     const uint Version = 1;
     const uint NoNode = uint.MaxValue;
-    const int MaxNodes = 50_000_000;
+    // Matches the native node-pool ceiling and prevents corrupt files from requesting
+    // multi-gigabyte managed arrays before any node data has been verified.
+    const int MaxNodes = 4_194_304;
+    const int MinimumSerializedNodeBytes = 36;
     const int MaxNameBytes = 16 * 1024 * 1024;
     const long MaxSnapshotBytes = 16L * 1024 * 1024 * 1024;
 
@@ -91,6 +94,9 @@ public static class ScanSnapshotStore
         ulong dirCount = await ReadUInt64Async(stream, cancellationToken);
         double elapsed = BitConverter.Int64BitsToDouble(unchecked((long)await ReadUInt64Async(stream, cancellationToken)));
         if (!double.IsFinite(elapsed) || elapsed < 0) throw new InvalidDataException("The elapsed time is invalid.");
+        long minimumNodeBytes = checked((long)count * MinimumSerializedNodeBytes);
+        if (stream.Length - stream.Position < minimumNodeBytes)
+            throw new InvalidDataException("The scan snapshot node count exceeds the available data.");
 
         var nodes = new ScanNode[count];
         var names = new string[count];
@@ -129,23 +135,69 @@ public static class ScanSnapshotStore
             throw new InvalidDataException("Node and name counts do not match.");
         if (nodes.Length > MaxNodes) throw new InvalidDataException("The scan contains too many nodes.");
         var states = new byte[nodes.Length];
+        var chain = new List<int>();
         for (int i = 0; i < nodes.Length; i++)
         {
             if (names[i] is null) throw new InvalidDataException("A node name is null.");
             CheckLink(nodes[i].FirstChild, nodes.Length, "first-child");
             CheckLink(nodes[i].NextSibling, nodes.Length, "next-sibling");
-            Visit(i);
+            ValidateParentChain(i);
         }
-        void Visit(int index)
+
+        // Validate parent chains iteratively so a valid but extremely deep tree cannot
+        // overflow the managed stack.
+        void ValidateParentChain(int start)
         {
-            if (states[index] == 2) return;
-            if (states[index] == 1) throw new InvalidDataException("The parent topology contains a cycle.");
-            states[index] = 1;
-            uint parent = nodes[index].Parent;
-            CheckLink(parent, nodes.Length, "parent");
-            if (parent != NoNode) Visit(checked((int)parent));
-            states[index] = 2;
+            chain.Clear();
+            int index = start;
+            while (index >= 0 && states[index] != 2)
+            {
+                if (states[index] == 1) throw new InvalidDataException("The parent topology contains a cycle.");
+                states[index] = 1;
+                chain.Add(index);
+                uint parent = nodes[index].Parent;
+                CheckLink(parent, nodes.Length, "parent");
+                index = parent == NoNode ? -1 : checked((int)parent);
+            }
+            foreach (int item in chain) states[item] = 2;
         }
+
+        // NextSibling is a directed graph with at most one outgoing edge. Validate it
+        // independently, including orphaned links that are not reachable from a root.
+        Array.Clear(states);
+        for (int start = 0; start < nodes.Length; start++)
+        {
+            int index = start;
+            chain.Clear();
+            while (index >= 0 && states[index] != 2)
+            {
+                if (states[index] == 1) throw new InvalidDataException("The sibling topology contains a cycle.");
+                states[index] = 1;
+                chain.Add(index);
+                uint sibling = nodes[index].NextSibling;
+                index = sibling == NoNode ? -1 : checked((int)sibling);
+            }
+            foreach (int item in chain) states[item] = 2;
+        }
+
+        // Ensure child lists agree with Parent and do not claim one node twice.
+        var claimed = new bool[nodes.Length];
+        for (int parent = 0; parent < nodes.Length; parent++)
+        {
+            uint child = nodes[parent].FirstChild;
+            while (child != NoNode)
+            {
+                int childIndex = checked((int)child);
+                if (claimed[childIndex]) throw new InvalidDataException("A node appears more than once in child lists.");
+                if (nodes[childIndex].Parent != (uint)parent)
+                    throw new InvalidDataException("A child link does not agree with its parent link.");
+                claimed[childIndex] = true;
+                child = nodes[childIndex].NextSibling;
+            }
+        }
+        for (int i = 0; i < nodes.Length; i++)
+            if (nodes[i].Parent != NoNode && !claimed[i])
+                throw new InvalidDataException("A parented node is missing from its parent's child list.");
     }
 
     static void CheckLink(uint link, int count, string label)
