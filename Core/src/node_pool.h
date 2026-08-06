@@ -28,6 +28,13 @@ public:
     bool Full() const;
     void Swap(NodePool& other) noexcept;
 
+#ifdef SMON_NODE_POOL_TESTING
+    void TestSetUsage(uint32_t node_count, uint32_t name_bytes) {
+        m_node_count = node_count;
+        m_name_used = name_bytes;
+    }
+#endif
+
 private:
     bool GrowNodes();
     bool GrowNames(uint32_t need_bytes);

@@ -29,6 +29,16 @@ int wmain()
     NodePool pool;
     if (!Check(!pool.Full(), L"pool reserves its arena")) return 1;
 
+    pool.TestSetUsage(NodePool::MaxNodes, 0);
+    if (!Check(pool.Full(), L"pool full at exact node capacity") ||
+        !Check(pool.AllocNode() == UINT32_MAX, L"node allocation rejected at capacity"))
+        return 1;
+    pool.TestSetUsage(0, NodePool::MaxNameBytes);
+    if (!Check(pool.AppendName(L"x", 1) == UINT32_MAX,
+               L"name allocation rejected at byte capacity"))
+        return 1;
+    pool.TestSetUsage(0, 0);
+
     uint32_t index = pool.AllocNode();
     if (!Check(index == 0, L"first node index") ||
         !Check(pool.NodeAt(index)->parent == 0, L"new nodes are zero initialized"))
