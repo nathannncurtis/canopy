@@ -4,41 +4,41 @@ namespace SizeMonitor.Interop;
 
 public sealed class ScanSession : IDisposable
 {
-    IntPtr                _handle;
-    SmonProgressCallback? _callbackDelegate; // rooted to prevent GC while native code holds function pointer
-    bool                  _disposed;
-    readonly object       _gate = new();
-    ScanSessionState      _state = ScanSessionState.Created;
+    IntPtr _handle;
+    SmonProgressCallback? _callbackDelegate;
+    bool _disposed;
+    readonly object _gate = new();
+    int _nativeCalls;
+    ScanSessionState _state = ScanSessionState.Created;
 
     public ScanSessionState State { get { lock (_gate) return _state; } }
-    public ScannerKind Scanner { get { lock (_gate) return _handle == IntPtr.Zero
-        ? ScannerKind.Unknown : (ScannerKind)Native.Smon_GetScannerKind(_handle); } }
+    public ScannerKind Scanner
+    {
+        get
+        {
+            if (!TryAcquireHandle(throwIfDisposed: false, out IntPtr handle)) return ScannerKind.Unknown;
+            try { return (ScannerKind)Native.Smon_GetScannerKind(handle); }
+            finally { ReleaseHandle(); }
+        }
+    }
 
-    // Starts the scan asynchronously; returns immediately.
-    public static ScanSession Start(string path, IProgress<ScanProgress>? progress)
-        => Start(path, progress, null);
+    public static ScanSession Start(string path, IProgress<ScanProgress>? progress) => Start(path, progress, null);
 
-    public static unsafe ScanSession Start(
-        string path,
-        IProgress<ScanProgress>? progress,
-        ScanOptions? options)
+    public static unsafe ScanSession Start(string path, IProgress<ScanProgress>? progress, ScanOptions? options)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         options?.Validate();
         var session = new ScanSession();
-
-        SmonProgressCallback? cb = null;
-        if (progress != null)
-        {
-            cb = (dirs, files, bytes, _) =>
-                progress.Report(new ScanProgress(dirs, files, bytes));
-        }
-        session._callbackDelegate = cb;
+        SmonProgressCallback? callback = progress is null ? null :
+            (dirs, files, bytes, _) =>
+            {
+                try { progress.Report(new ScanProgress(dirs, files, bytes)); }
+                catch { }
+            };
+        session._callbackDelegate = callback;
 
         if (options is null)
-        {
-            session._handle = Native.Smon_BeginScan(path, cb, IntPtr.Zero);
-        }
+            session._handle = Native.Smon_BeginScan(path, callback, IntPtr.Zero);
         else
         {
             string? patterns = options.BuildExcludedPatternList();
@@ -46,145 +46,141 @@ public sealed class ScanSession : IDisposable
             fixed (char* patternPointer = patterns)
             fixed (char* extensionPointer = extensions)
             {
-                SmonScanOptionsNative nativeOptions = options.ToNative(
-                    (IntPtr)patternPointer,
-                    (IntPtr)extensionPointer);
-                session._handle = Native.Smon_BeginScanEx(
-                    path, ref nativeOptions, cb, IntPtr.Zero);
+                SmonScanOptionsNative native = options.ToNative((IntPtr)patternPointer, (IntPtr)extensionPointer);
+                session._handle = Native.Smon_BeginScanEx(path, ref native, callback, IntPtr.Zero);
             }
         }
         if (session._handle == IntPtr.Zero)
             throw new ScanException((uint)Marshal.GetLastPInvokeError(), path);
-
         session._state = ScanSessionState.Running;
-
         return session;
     }
 
-    // Polls until the scan completes, then returns the result. Cancellation is checked every 200 ms.
-    public async Task<ScanResultManaged> WaitAsync(CancellationToken ct = default)
+    public async Task<ScanResultManaged> WaitAsync(CancellationToken cancellationToken = default)
     {
         lock (_gate) ObjectDisposedException.ThrowIf(_disposed, this);
-
         try
         {
             await Task.Run(() =>
             {
                 while (true)
                 {
-                    lock (_gate)
-                    {
-                        ObjectDisposedException.ThrowIf(_disposed, this);
-                        if (Native.Smon_Wait(_handle, 200)) break;
-                    }
-                    ct.ThrowIfCancellationRequested();
+                    if (!TryAcquireHandle(throwIfDisposed: true, out IntPtr handle))
+                        throw new ObjectDisposedException(nameof(ScanSession));
+                    bool completed;
+                    try { completed = Native.Smon_Wait(handle, 200); }
+                    finally { ReleaseHandle(); }
+                    if (completed) break;
+                    cancellationToken.ThrowIfCancellationRequested();
                 }
-            }, ct);
-
-            // Cancellation and native completion can race. The native handle may
-            // become signaled before the polling loop observes the token; honor
-            // the caller's cancellation rather than returning a partial result.
-            ct.ThrowIfCancellationRequested();
-            var result = GetResult();
-            lock (_gate) _state = ScanSessionState.Completed;
+            }, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            ScanResultManaged result = GetResult();
+            lock (_gate) if (!_disposed) _state = ScanSessionState.Completed;
             return result;
         }
-        catch (OperationCanceledException)
-        {
-            Cancel();
-            throw;
-        }
-        catch
-        {
-            lock (_gate) if (!_disposed) _state = ScanSessionState.Failed;
-            throw;
-        }
+        catch (OperationCanceledException) { Cancel(); throw; }
+        catch { lock (_gate) if (!_disposed) _state = ScanSessionState.Failed; throw; }
     }
 
-    // Requests cancellation of the running scan. Non-blocking.
     public void Cancel()
     {
-        lock (_gate)
+        if (!TryAcquireHandle(throwIfDisposed: false, out IntPtr handle)) return;
+        try
         {
-            if (_handle == IntPtr.Zero || _disposed) return;
-            _state = ScanSessionState.Cancelling;
-            Native.Smon_Cancel(_handle);
+            lock (_gate) if (!_disposed) _state = ScanSessionState.Cancelling;
+            Native.Smon_Cancel(handle);
         }
+        finally { ReleaseHandle(); }
     }
 
-    public void Pause()
-    {
-        lock (_gate)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_state != ScanSessionState.Running) return;
-            if (Native.Smon_SetPaused(_handle, true)) _state = ScanSessionState.Paused;
-        }
-    }
+    public void Pause() => SetPaused(true);
+    public void Resume() => SetPaused(false);
 
-    public void Resume()
+    void SetPaused(bool paused)
     {
-        lock (_gate)
+        if (!TryAcquireHandle(throwIfDisposed: true, out IntPtr handle)) return;
+        try
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_state != ScanSessionState.Paused) return;
-            if (Native.Smon_SetPaused(_handle, false)) _state = ScanSessionState.Running;
+            lock (_gate)
+            {
+                ScanSessionState required = paused ? ScanSessionState.Running : ScanSessionState.Paused;
+                if (_state != required) return;
+            }
+            if (Native.Smon_SetPaused(handle, paused))
+                lock (_gate) if (!_disposed) _state = paused ? ScanSessionState.Paused : ScanSessionState.Running;
         }
+        finally { ReleaseHandle(); }
     }
 
     unsafe ScanResultManaged GetResult()
     {
+        if (!TryAcquireHandle(throwIfDisposed: true, out IntPtr handle))
+            throw new ObjectDisposedException(nameof(ScanSession));
+        try
+        {
+            ScanResultNative native = default;
+            if (!Native.Smon_GetResult(handle, &native)) throw new ScanException(Native.Smon_GetError(handle));
+            return ScanResultManaged.FromNative(native);
+        }
+        finally { ReleaseHandle(); }
+    }
+
+    bool TryAcquireHandle(bool throwIfDisposed, out IntPtr handle)
+    {
         lock (_gate)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            ScanResultNative native = default;
-            if (!Native.Smon_GetResult(_handle, &native))
-                throw new ScanException(Native.Smon_GetError(_handle));
-            return ScanResultManaged.FromNative(native);
+            if (_disposed || _handle == IntPtr.Zero)
+            {
+                if (throwIfDisposed) ObjectDisposedException.ThrowIf(_disposed, this);
+                handle = IntPtr.Zero;
+                return false;
+            }
+            _nativeCalls++;
+            handle = _handle;
+            return true;
+        }
+    }
+
+    void ReleaseHandle()
+    {
+        lock (_gate)
+        {
+            _nativeCalls--;
+            if (_nativeCalls == 0) Monitor.PulseAll(_gate);
         }
     }
 
     public void Dispose()
     {
+        IntPtr handle;
         lock (_gate)
         {
             if (_disposed) return;
             _disposed = true;
-            if (_handle != IntPtr.Zero)
+            handle = _handle;
+        }
+        if (handle != IntPtr.Zero)
+        {
+            Native.Smon_Cancel(handle);
+            Native.Smon_Wait(handle, uint.MaxValue);
+            lock (_gate)
             {
-            // Cancel any in-progress scan and wait for the native thread to
-            // finish before freeing the context.  Smon_FreeResult destroys the
-            // ScanContext that the native thread is executing inside; calling it
-            // while the thread is still running is a use-after-free.
-                Native.Smon_Cancel(_handle);
-                Native.Smon_Wait(_handle, uint.MaxValue); // blocks until thread exits
-                Native.Smon_FreeResult(_handle);
+                while (_nativeCalls != 0) Monitor.Wait(_gate);
                 _handle = IntPtr.Zero;
             }
+            Native.Smon_FreeResult(handle);
+        }
+        lock (_gate)
+        {
             _callbackDelegate = null;
             _state = ScanSessionState.Disposed;
         }
     }
 }
 
-
-public enum ScanSessionState
-{
-    Created,
-    Running,
-    Paused,
-    Cancelling,
-    Completed,
-    Failed,
-    Disposed,
-}
-
-public enum ScannerKind : uint
-{
-    Unknown = 0,
-    Mft = 1,
-    Directory = 2,
-}
+public enum ScanSessionState { Created, Running, Paused, Cancelling, Completed, Failed, Disposed }
+public enum ScannerKind : uint { Unknown = 0, Mft = 1, Directory = 2 }
 
 public sealed class ScanException(uint nativeError, string? path = null)
     : Exception(path is null
