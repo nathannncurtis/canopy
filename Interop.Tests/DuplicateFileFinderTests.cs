@@ -80,6 +80,26 @@ public sealed class DuplicateFileFinderTests : IDisposable
             DuplicateFileFinder.FindAsync([_root], cancellationToken: cancellation.Token));
     }
 
+    [Fact]
+    public async Task BusyCandidateIsSkippedByDefaultAndStrictModeReportsIt()
+    {
+        string lockedPath = Path.Combine(_root, "locked.bin");
+        string first = Path.Combine(_root, "first.bin");
+        string second = Path.Combine(_root, "second.bin");
+        await File.WriteAllTextAsync(lockedPath, "duplicate", TestContext.Current.CancellationToken);
+        File.Copy(lockedPath, first);
+        File.Copy(lockedPath, second);
+
+        await using var locked = new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None);
+        DuplicateFileGroup group = Assert.Single(await DuplicateFileFinder.FindAsync(
+            [_root], cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(2, group.Paths.Count);
+        Assert.DoesNotContain(lockedPath, group.Paths);
+
+        await Assert.ThrowsAsync<IOException>(() => DuplicateFileFinder.FindAsync(
+            [_root], new DuplicateFileOptions { IgnoreInaccessible = false }, TestContext.Current.CancellationToken));
+    }
+
     public void Dispose()
     {
         try
