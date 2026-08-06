@@ -68,7 +68,7 @@ public static class ScanResultQuery
         if (!string.IsNullOrWhiteSpace(query.Text) &&
             !name.Contains(query.Text, StringComparison.OrdinalIgnoreCase)) return false;
         if (regex is not null && !regex.IsMatch(name)) return false;
-        if (!isDirectory && extensions.Count > 0 && !extensions.Contains(Path.GetExtension(name))) return false;
+        if (!isDirectory && extensions.Count > 0 && !extensions.Contains(FileNameFacts.ExtensionOf(name))) return false;
         if (isDirectory && extensions.Count > 0) return false;
         return true;
     }
