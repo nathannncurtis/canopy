@@ -1,0 +1,85 @@
+<UserControl x:Class="SizeMonitor.Controls.CleanupRulesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="Cleanup rule preview">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="120" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.Row="0" Margin="0,0,0,6">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Content="Load JSON…" Padding="12,4" Margin="8,0,0,0"
+                        Click="OnLoadJson" ToolTip="Load a versioned cleanup rule JSON file"
+                        AutomationProperties.Name="Load cleanup rule JSON" />
+                <Button Content="Preview only" Padding="12,4" Margin="8,0,0,0"
+                        Click="OnPreview" ToolTip="Evaluate rules without changing the filesystem"
+                        AutomationProperties.Name="Preview cleanup rules" />
+            </StackPanel>
+            <TextBlock VerticalAlignment="Center" FontWeight="SemiBold"
+                       Text="Versioned cleanup rules (JSON)" />
+        </DockPanel>
+
+        <TextBox Grid.Row="1" x:Name="_ruleJson" AcceptsReturn="True" AcceptsTab="True"
+                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                 FontFamily="Consolas" TextWrapping="NoWrap" SpellCheck.IsEnabled="False"
+                 ToolTip="Paste a version 1 cleanup rule document"
+                 AutomationProperties.Name="Cleanup rule JSON editor" />
+
+        <TextBlock Grid.Row="2" Margin="0,8,0,8" TextWrapping="Wrap"
+                   Text="Preview is non-destructive: no file or directory is deleted, moved, or modified. Reclaimable bytes are estimates from scan allocation data; inspect every match before taking action outside Canopy."
+                   AutomationProperties.Name="Cleanup preview safety notice" />
+
+        <Grid Grid.Row="3" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <ComboBox Grid.Column="0" x:Name="_riskFilter" Width="140" SelectedIndex="0"
+                      SelectionChanged="OnFilterChanged" Margin="0,0,8,0"
+                      ToolTip="Filter preview matches by risk"
+                      AutomationProperties.Name="Cleanup risk filter">
+                <ComboBoxItem Content="All risk levels" />
+                <ComboBoxItem Content="Low risk" />
+                <ComboBoxItem Content="Medium risk" />
+                <ComboBoxItem Content="High risk" />
+            </ComboBox>
+            <TextBox Grid.Column="1" x:Name="_ruleFilter" Width="150" Margin="0,0,8,0"
+                     TextChanged="OnFilterChanged" ToolTip="Filter by rule ID"
+                     AutomationProperties.Name="Rule ID filter" />
+            <TextBox Grid.Column="2" x:Name="_reasonFilter" Width="190" Margin="0,0,8,0"
+                     TextChanged="OnFilterChanged" ToolTip="Filter by cleanup reason"
+                     AutomationProperties.Name="Cleanup reason filter" />
+            <TextBlock Grid.Column="3" x:Name="_status" VerticalAlignment="Center"
+                       Text="Load or paste rules, then run a scan to preview."
+                       AutomationProperties.LiveSetting="Polite"
+                       AutomationProperties.Name="Cleanup preview status" />
+        </Grid>
+
+        <DataGrid Grid.Row="4" x:Name="_items" AutoGenerateColumns="False"
+                  IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow"
+                  CanUserAddRows="False" CanUserDeleteRows="False"
+                  EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                  VirtualizingPanel.IsVirtualizing="True"
+                  VirtualizingPanel.VirtualizationMode="Recycling"
+                  ScrollViewer.CanContentScroll="True"
+                  MouseDoubleClick="OnItemDoubleClick"
+                  ToolTip="Double-click a preview match to activate its scan node"
+                  AutomationProperties.Name="Cleanup preview matches">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Index" Binding="{Binding NodeIndex}" Width="70" />
+                <DataGridTextColumn Header="Risk" Binding="{Binding Risk}" Width="90" />
+                <DataGridTextColumn Header="Relative path" Binding="{Binding Path}" Width="*" />
+                <DataGridTextColumn Header="Bytes" Binding="{Binding ReclaimableBytes, StringFormat=N0}" Width="115" />
+                <DataGridTextColumn Header="Rules" Binding="{Binding RuleText}" Width="170" />
+                <DataGridTextColumn Header="Reasons" Binding="{Binding ReasonText}" Width="230" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>
