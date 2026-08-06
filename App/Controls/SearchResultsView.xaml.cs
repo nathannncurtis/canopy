@@ -173,13 +173,13 @@ public partial class SearchResultsView : UserControl
         {
             ScanQuery query = BuildQuery();
             _status.Text = "Searching...";
-            IReadOnlyList<ScanSearchResult> matches = await Task.Run(
-                () => ScanResultQuery.Search(result, query, token), token);
+            ScanSearchPage page = await Task.Run(
+                () => ScanResultQuery.SearchPage(result, query, token), token);
             if (generation != Volatile.Read(ref _searchGeneration)) return;
-            _results.ItemsSource = matches;
-            _status.Text = matches.Count == MaximumDisplayedResults
-                ? $"Showing the first {MaximumDisplayedResults:N0} matches. Narrow the filter for more."
-                : $"{matches.Count:N0} matches";
+            _results.ItemsSource = page.Items;
+            _status.Text = page.IsTruncated
+                ? $"Showing {page.Items.Count:N0} of {page.TotalMatches:N0} matches. Narrow the filter for more."
+                : $"{page.TotalMatches:N0} matches";
         }
         catch (OperationCanceledException)
         {

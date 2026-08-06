@@ -87,16 +87,24 @@ public sealed class ScanResultQueryTests
             Result(), query, TestContext.Current.CancellationToken));
     }
 
-    [Theory]
-    [InlineData("[")]
-    [InlineData("(.)\\1")]
-    public void ReportsInvalidOrBacktrackingRegexDistinctly(string pattern)
+    [Fact]
+    public void ReportsMalformedRegexDistinctly()
     {
+        const string pattern = "[";
         ScanQueryRegexException exception = Assert.Throws<ScanQueryRegexException>(() =>
             ScanResultQuery.Search(Result(), new ScanQuery { RegexPattern = pattern },
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(pattern, exception.Pattern);
+    }
+
+    [Fact]
+    public void FallsBackForValidRegexFeaturesUnsupportedBySafeEngine()
+    {
+        IReadOnlyList<ScanSearchResult> matches = ScanResultQuery.Search(Result(),
+            new ScanQuery { RegexPattern = @"(.)\1" }, TestContext.Current.CancellationToken);
+
+        Assert.Contains(matches, item => item.Name == "root");
     }
 
     [Fact]
@@ -120,6 +128,75 @@ public sealed class ScanResultQueryTests
             TestContext.Current.CancellationToken);
 
         Assert.Equal(2, matches.Count);
+    }
+
+    [Fact]
+    public void SearchPageReportsWhetherTraversalWasClipped()
+    {
+        ScanSearchPage clipped = ScanResultQuery.SearchPage(Result(),
+            new ScanQuery { ResultLimit = 2 }, TestContext.Current.CancellationToken);
+        ScanSearchPage complete = ScanResultQuery.SearchPage(Result(),
+            new ScanQuery { ResultLimit = 4 }, TestContext.Current.CancellationToken);
+
+        Assert.True(clipped.IsTruncated);
+        Assert.False(complete.IsTruncated);
+        Assert.Equal(4, clipped.TotalMatches);
+        Assert.Equal(4, complete.TotalMatches);
+    }
+
+    [Fact]
+    public void ResultLimitKeepsGloballyLargestMatches()
+    {
+        var result = new ScanResultManaged
+        {
+            Nodes =
+            [
+                Node(1, None, None, None, 0),
+                Node(2, None, None, None, 0),
+                Node(1000, None, None, None, 0),
+            ],
+            Names = ["early-small", "middle", "late-largest"],
+            TotalBytes = 1003,
+        };
+
+        ScanSearchPage page = ScanResultQuery.SearchPage(result,
+            new ScanQuery { Kinds = ScanItemKinds.Files, ResultLimit = 2 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, page.TotalMatches);
+        Assert.True(page.IsTruncated);
+        Assert.Equal(["late-largest", "middle"], page.Items.Select(item => item.Name));
+    }
+
+    [Fact]
+    public void ExactResultLimitIsNotTruncated()
+    {
+        ScanSearchPage page = ScanResultQuery.SearchPage(Result(),
+            new ScanQuery { Kinds = ScanItemKinds.Files, ResultLimit = 2 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, page.TotalMatches);
+        Assert.False(page.IsTruncated);
+    }
+
+    [Fact]
+    public void DriveRootDoesNotGainADuplicateSeparator()
+    {
+        var result = new ScanResultManaged
+        {
+            Nodes =
+            [
+                Node(1, None, 1, None, ScanNodeFlags.Directory),
+                Node(1, 0, None, None, 0),
+            ],
+            Names = [@"C:\", "Users"],
+            TotalBytes = 1,
+        };
+
+        ScanSearchResult match = Assert.Single(ScanResultQuery.Search(result,
+            new ScanQuery { Text = "Users" }, TestContext.Current.CancellationToken));
+
+        Assert.Equal(@"C:\Users", match.RelativePath);
     }
 
     [Fact]

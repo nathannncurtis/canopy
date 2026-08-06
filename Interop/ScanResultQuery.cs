@@ -9,6 +9,12 @@ public static class ScanResultQuery
     public static IReadOnlyList<ScanSearchResult> Search(
         ScanResultManaged result,
         ScanQuery? query = null,
+        CancellationToken cancellationToken = default) =>
+        SearchPage(result, query, cancellationToken).Items;
+
+    public static ScanSearchPage SearchPage(
+        ScanResultManaged result,
+        ScanQuery? query = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -23,6 +29,10 @@ public static class ScanResultQuery
         var paths = new string?[result.Nodes.Length];
         var depths = new int[result.Nodes.Length];
         var matches = new List<ScanSearchResult>();
+        PriorityQueue<ScanSearchResult, ScanSearchResult>? top = query.ResultLimit is not null
+            ? new(Comparer<ScanSearchResult>.Create((left, right) => -Compare(left, right, query.Sort)))
+            : null;
+        int totalMatches = 0;
         for (uint index = 0; index < result.Nodes.Length; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -31,12 +41,11 @@ public static class ScanResultQuery
             bool isDirectory = (node.Flags & ScanNodeFlags.Directory) != 0;
             if (!Matches(node, name, isDirectory, query, extensions, regex))
                 continue;
-
             string path = ResolvePath(result, index, paths, depths);
             ulong parentSize = node.Parent == NoNode || result.Nodes[node.Parent].Size == 0
                 ? result.TotalBytes
                 : result.Nodes[node.Parent].Size;
-            matches.Add(new ScanSearchResult(
+            var match = new ScanSearchResult(
                 index,
                 name,
                 path,
@@ -44,11 +53,38 @@ public static class ScanResultQuery
                 depths[index],
                 Percentage(node.Size, parentSize),
                 Percentage(node.Size, result.TotalBytes),
-                node.Flags));
-            if (matches.Count == query.ResultLimit) break;
+                node.Flags);
+            totalMatches = checked(totalMatches + 1);
+            if (top is null) matches.Add(match);
+            else
+            {
+                top.Enqueue(match, match);
+                if (top.Count > query.ResultLimit!.Value) top.Dequeue();
+            }
         }
 
-        return Sort(matches, query.Sort);
+        if (top is not null)
+            while (top.TryDequeue(out ScanSearchResult? match, out _)) matches.Add(match);
+        return new ScanSearchPage(Sort(matches, query.Sort), totalMatches);
+    }
+
+    static int Compare(ScanSearchResult left, ScanSearchResult right, IReadOnlyList<ScanSortTerm> terms)
+    {
+        foreach (ScanSortTerm term in terms)
+        {
+            int value = term.Field switch
+            {
+                ScanSortField.Name => StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name),
+                ScanSortField.Path => StringComparer.OrdinalIgnoreCase.Compare(left.RelativePath, right.RelativePath),
+                ScanSortField.Size => left.Size.CompareTo(right.Size),
+                ScanSortField.Depth => left.Depth.CompareTo(right.Depth),
+                ScanSortField.PercentOfParent => left.PercentOfParent.CompareTo(right.PercentOfParent),
+                ScanSortField.PercentOfTotal => left.PercentOfTotal.CompareTo(right.PercentOfTotal),
+                _ => throw new ArgumentOutOfRangeException(nameof(terms)),
+            };
+            if (value != 0) return term.Descending ? -value : value;
+        }
+        return left.NodeIndex.CompareTo(right.NodeIndex);
     }
 
     static bool Matches(
@@ -152,9 +188,7 @@ public static class ScanResultQuery
         {
             uint nodeIndex = chain[i];
             string name = result.Names[nodeIndex];
-            path = path.Length == 0
-                ? name
-                : string.Concat(path, Path.DirectorySeparatorChar, name);
+            path = Path.Join(path, name);
             depth++;
             paths[nodeIndex] = path;
             depths[nodeIndex] = depth;
@@ -187,7 +221,22 @@ public static class ScanResultQuery
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
                 TimeSpan.FromMilliseconds(250));
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+        catch (NotSupportedException)
+        {
+            // Preserve valid .NET patterns which use lookarounds/backreferences while
+            // retaining the per-match timeout used before the safe engine was added.
+            try
+            {
+                return new Regex(pattern,
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                    TimeSpan.FromMilliseconds(250));
+            }
+            catch (ArgumentException ex)
+            {
+                throw new ScanQueryRegexException(pattern, ex);
+            }
+        }
+        catch (ArgumentException ex)
         {
             throw new ScanQueryRegexException(pattern, ex);
         }
