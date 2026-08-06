@@ -89,8 +89,20 @@ public sealed class ScanFilterPresetStore
                 FileShare.Read, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
             List<ScanFilterPreset>? presets = await JsonSerializer.DeserializeAsync<List<ScanFilterPreset>>(
                 stream, JsonOptions, cancellationToken).ConfigureAwait(false);
-            return (presets ?? []).Select(Normalize)
-                .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+            var canonical = new Dictionary<string, ScanFilterPreset>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                foreach (ScanFilterPreset preset in presets ?? [])
+                {
+                    ScanFilterPreset normalized = Normalize(preset);
+                    canonical[normalized.Name] = normalized;
+                }
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidDataException($"Filter preset file is invalid: {_filePath}", ex);
+            }
+            return canonical.Values.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToArray();
         }
         catch (JsonException ex)
         {
