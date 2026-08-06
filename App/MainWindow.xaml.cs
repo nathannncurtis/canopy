@@ -109,6 +109,7 @@ public partial class MainWindow : FluentWindow
         _statVolume.Text        = "";
         _statSelection.Text     = "";
         _distributionView.SetResult(null);
+        _cleanupRulesView.SetResult(null);
         if (_shellActionsMenu is not null) _shellActionsMenu.ItemPath = null;
         _saveSnapshotMenuItem.IsEnabled = false;
         _exportMenuItem.IsEnabled = false;
@@ -344,6 +345,7 @@ public partial class MainWindow : FluentWindow
         _emptyItemsView.SetResult(result);
         _distributionView.SetResult(result);
         _anomaliesView.SetResult(result);
+        _cleanupRulesView.SetResult(result);
         _comparisonView.SetResults(_previousResult, result);
         _duplicatesView.SetRoots((targets ?? []).Select(target => target.Path));
         bool hasNodes = result.Nodes.Length > 0;
@@ -517,6 +519,14 @@ public partial class MainWindow : FluentWindow
 
     void OnAnomalyNodeActivated(uint nodeIndex)
     {
+        _navigationBar.NavigateTo(nodeIndex);
+        ActivateNode(nodeIndex);
+        _contentTabs.SelectedIndex = 0;
+    }
+
+    void OnCleanupNodeActivated(uint nodeIndex)
+    {
+        if (_result is null || nodeIndex >= _result.Nodes.Length) return;
         _navigationBar.NavigateTo(nodeIndex);
         ActivateNode(nodeIndex);
         _contentTabs.SelectedIndex = 0;
