@@ -37,10 +37,21 @@ public static class ByteSizeParser
         string unitPart = value[unitStart..].Trim();
         if (!Multipliers.TryGetValue(unitPart, out decimal multiplier)) return false;
         const NumberStyles styles = NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint;
-        if (!decimal.TryParse(numberPart, styles, CultureInfo.CurrentCulture,
-                out decimal number) &&
-            !decimal.TryParse(numberPart, styles, CultureInfo.InvariantCulture,
-                out number)) return false;
+        CultureInfo culture = CultureInfo.CurrentCulture;
+        NumberFormatInfo format = culture.NumberFormat;
+        bool hasDecimal = ContainsSeparator(numberPart, format.NumberDecimalSeparator);
+        bool hasGroup = ContainsSeparator(numberPart, format.NumberGroupSeparator);
+        bool validCurrentGrouping = !hasGroup || HasValidGrouping(numberPart, format);
+        decimal number = 0;
+        string currentNumber = validCurrentGrouping && hasGroup
+            ? numberPart.Replace(format.NumberGroupSeparator, string.Empty, StringComparison.Ordinal)
+            : numberPart;
+        if ((!validCurrentGrouping || !decimal.TryParse(currentNumber, styles, culture,
+                 out number)) &&
+            // Never reinterpret a separator that has meaning in the user's culture
+            // under invariant rules; ambiguous input must be corrected by the user.
+            (hasDecimal || hasGroup || !decimal.TryParse(numberPart, styles,
+                 CultureInfo.InvariantCulture, out number))) return false;
         if (number < 0) return false;
 
         try
@@ -60,4 +71,23 @@ public static class ByteSizeParser
         TryParse(text, out ulong bytes)
             ? bytes
             : throw new FormatException($"'{text}' is not a valid byte size.");
+
+    static bool ContainsSeparator(string value, string separator) =>
+        separator.Length != 0 && value.Contains(separator, StringComparison.Ordinal);
+
+    static bool HasValidGrouping(string value, NumberFormatInfo format)
+    {
+        string unsigned = value.TrimStart('+', '-');
+        int decimalIndex = format.NumberDecimalSeparator.Length == 0
+            ? -1
+            : unsigned.IndexOf(format.NumberDecimalSeparator, StringComparison.Ordinal);
+        string integer = decimalIndex < 0 ? unsigned : unsigned[..decimalIndex];
+        string fraction = decimalIndex < 0 ? string.Empty :
+            unsigned[(decimalIndex + format.NumberDecimalSeparator.Length)..];
+        if (ContainsSeparator(fraction, format.NumberGroupSeparator)) return false;
+        string[] groups = integer.Split(format.NumberGroupSeparator, StringSplitOptions.None);
+        if (groups.Length < 2 || groups[0].Length is < 1 or > 3) return false;
+        return groups[0].All(char.IsDigit) &&
+            groups.Skip(1).All(group => group.Length == 3 && group.All(char.IsDigit));
+    }
 }
