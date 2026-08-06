@@ -10,17 +10,24 @@ public partial class StorageDistributionView : UserControl
     CancellationTokenSource? _calculationCancellation;
     ScanResultManaged? _result;
     long _generation;
+    bool _hasCompletedResult;
 
     public StorageDistributionView()
     {
         InitializeComponent();
         Unloaded += (_, _) => CancelCalculation();
+        Loaded += (_, _) =>
+        {
+            if (_result is not null && !_hasCompletedResult && _calculationCancellation is null)
+                StartCalculation();
+        };
     }
 
     /// <summary>Displays file storage distribution for a completed scan, or clears the view.</summary>
     public void SetResult(ScanResultManaged? result)
     {
         _result = result;
+        _hasCompletedResult = false;
         _distribution.ItemsSource = null;
         if (result is null)
         {
@@ -35,7 +42,10 @@ public partial class StorageDistributionView : UserControl
     void OnGroupingChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_distribution is not null && _result is not null)
+        {
+            _hasCompletedResult = false;
             StartCalculation();
+        }
     }
 
     void StartCalculation()
@@ -71,6 +81,7 @@ public partial class StorageDistributionView : UserControl
                 return;
 
             _distribution.ItemsSource = buckets;
+            _hasCompletedResult = true;
             ulong totalBytes = 0;
             ulong fileCount = 0;
             foreach (StorageDistributionBucket bucket in buckets)

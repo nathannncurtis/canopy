@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Automation.Peers;
 using SizeMonitor.Interop;
 
 namespace SizeMonitor.Controls;
@@ -35,9 +36,13 @@ public partial class ScanNavigationBar : UserControl
         return changed;
     }
 
-    void OnBack(object sender, RoutedEventArgs e) => Move(navigation => navigation.GoBack());
+    public bool GoBack() => Move(navigation => navigation.GoBack());
 
-    void OnForward(object sender, RoutedEventArgs e) => Move(navigation => navigation.GoForward());
+    public bool GoForward() => Move(navigation => navigation.GoForward());
+
+    void OnBack(object sender, RoutedEventArgs e) => GoBack();
+
+    void OnForward(object sender, RoutedEventArgs e) => GoForward();
 
     void OnGo(object sender, RoutedEventArgs e) => NavigateToTypedPath();
 
@@ -74,6 +79,7 @@ public partial class ScanNavigationBar : UserControl
             _pathBox.ToolTip = ambiguous
                 ? $"'{requestedPath}' is ambiguous. Select the intended item in the tree."
                 : $"'{requestedPath}' was not found. The current location has not changed.";
+            RaiseStatusChanged();
             _pathBox.Focus();
             _pathBox.SelectAll();
             return;
@@ -85,10 +91,14 @@ public partial class ScanNavigationBar : UserControl
             Refresh();
     }
 
-    void Move(Func<ScanNavigation, bool> action)
+    bool Move(Func<ScanNavigation, bool> action)
     {
         if (_navigation is not null && action(_navigation))
+        {
             ActivateCurrent();
+            return true;
+        }
+        return false;
     }
 
     void OnBreadcrumbClick(object sender, RoutedEventArgs e)
@@ -102,8 +112,17 @@ public partial class ScanNavigationBar : UserControl
 
     void ActivateCurrent()
     {
+        bool restoreFocus = IsKeyboardFocusWithin;
         Refresh();
+        if (restoreFocus) _pathBox.Focus();
         NodeActivated?.Invoke(_navigation!.Current);
+    }
+
+    void RaiseStatusChanged()
+    {
+        AutomationPeer? peer = UIElementAutomationPeer.FromElement(_status)
+            ?? UIElementAutomationPeer.CreatePeerForElement(_status);
+        peer?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
 
     void Refresh()

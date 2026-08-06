@@ -55,16 +55,24 @@ public sealed class ScanResultMetrics
         for (int i = 0; i < count; i++)
         {
             ScanNode node = result.Nodes[i];
+            ulong effectiveSize = node.Parent == uint.MaxValue && node.Size == 0
+                ? result.TotalBytes
+                : node.Size;
+            ulong parentSize = node.Parent == uint.MaxValue
+                ? result.TotalBytes
+                : result.Nodes[node.Parent].Parent == uint.MaxValue && result.Nodes[node.Parent].Size == 0
+                    ? result.TotalBytes
+                    : result.Nodes[node.Parent].Size;
             double parentPercentage = node.Parent == uint.MaxValue
-                ? Percentage(node.Size, result.TotalBytes)
-                : Percentage(node.Size, result.Nodes[node.Parent].Size);
+                ? Percentage(effectiveSize, result.TotalBytes)
+                : Percentage(effectiveSize, parentSize);
             metrics[i] = new(
                 files[i],
                 directories[i],
-                files[i] == 0 ? 0 : node.Size / files[i],
+                files[i] == 0 ? 0 : effectiveSize / files[i],
                 depths[i],
                 parentPercentage,
-                Percentage(node.Size, result.TotalBytes));
+                Percentage(effectiveSize, result.TotalBytes));
         }
         return new ScanResultMetrics(metrics);
     }
