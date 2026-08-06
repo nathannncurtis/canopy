@@ -177,6 +177,13 @@
             <controls:EmptyItemsView x:Name="_emptyItemsView"
                                      NodeActivated="OnEmptyItemActivated" />
           </TabItem>
+          <TabItem Header="Distribution">
+            <controls:StorageDistributionView x:Name="_distributionView" />
+          </TabItem>
+          <TabItem Header="Locations">
+            <controls:LocationHistoryView x:Name="_locationHistoryView"
+                                          PathActivated="OnHistoryPathActivated" />
+          </TabItem>
         </TabControl>
 
         <!-- Row 3: status bar -->
