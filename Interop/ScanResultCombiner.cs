@@ -7,8 +7,29 @@ public static class ScanResultCombiner
 
     public static ScanResultManaged CombineTargets(
         IEnumerable<TargetScanResult> targets,
-        string rootName = "Combined scan") =>
-        Combine(targets.Select(target => target.Result), rootName);
+        string rootName = "Combined scan")
+    {
+        ArgumentNullException.ThrowIfNull(targets);
+        TargetScanResult[] targetArray = targets.ToArray();
+        ScanResultManaged combined = Combine(targetArray.Select(target => target.Result), rootName);
+
+        int destinationOffset = 1;
+        foreach (TargetScanResult target in targetArray)
+        {
+            string targetPath = Path.GetFullPath(target.Path);
+            for (int sourceIndex = 0; sourceIndex < target.Result.Nodes.Length; sourceIndex++)
+            {
+                if (target.Result.Nodes[sourceIndex].Parent != NoNode) continue;
+                int destinationIndex = checked(destinationOffset + sourceIndex);
+                combined.Names[destinationIndex] = targetPath;
+                ScanNode node = combined.Nodes[destinationIndex];
+                node.NameLen = checked((uint)targetPath.Length);
+                combined.Nodes[destinationIndex] = node;
+            }
+            destinationOffset = checked(destinationOffset + target.Result.Nodes.Length);
+        }
+        return combined;
+    }
 
     public static ScanResultManaged Combine(
         IEnumerable<ScanResultManaged> results,
@@ -29,8 +50,10 @@ public static class ScanResultCombiner
 
         var nodes = new ScanNode[(int)totalNodeCount];
         var names = new string[(int)totalNodeCount];
+        ulong totalBytes = SumChecked(sources, result => result.TotalBytes);
         nodes[0] = new ScanNode
         {
+            Size = totalBytes,
             Parent = NoNode,
             FirstChild = NoNode,
             NextSibling = NoNode,
@@ -83,7 +106,7 @@ public static class ScanResultCombiner
         {
             Nodes = nodes,
             Names = names,
-            TotalBytes = SumChecked(sources, result => result.TotalBytes),
+            TotalBytes = totalBytes,
             FileCount = SumChecked(sources, result => result.FileCount),
             DirCount = checked(SumChecked(sources, result => result.DirCount) + 1),
             ElapsedSec = sources.Length == 0 ? 0 : sources.Max(result => result.ElapsedSec),
