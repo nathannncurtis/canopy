@@ -19,6 +19,7 @@ public partial class MainWindow : FluentWindow
     ScanResultMetrics?       _metrics;
     ScanNavigation?          _navigation;
     IReadOnlyList<TargetScanResult> _targets = [];
+    IReadOnlyList<string>      _summaryLimitations = [];
     SizeTreeView?            _treeView;
     Treemap?                 _treemap;
     Stopwatch?               _scanClock;
@@ -110,6 +111,7 @@ public partial class MainWindow : FluentWindow
         _statSelection.Text     = "";
         _distributionView.SetResult(null);
         _cleanupRulesView.SetResult(null);
+        _diskUsageSummaryView.SetResult(null);
         if (_shellActionsMenu is not null) _shellActionsMenu.ItemPath = null;
         _saveSnapshotMenuItem.IsEnabled = false;
         _exportMenuItem.IsEnabled = false;
@@ -165,7 +167,10 @@ public partial class MainWindow : FluentWindow
             ScanResultManaged result = ScanResultCombiner.CombineTargets(targetResults);
             if (generation == _resultGeneration)
             {
-                await OnScanCompleteAsync(result, targetResults, generation);
+                string[] limitations = failures.Length == 0
+                    ? []
+                    : [$"{failures.Length:N0} of {outcomes.Count:N0} scan targets could not be read"];
+                await OnScanCompleteAsync(result, targetResults, generation, limitations);
                 if (_locationHistory is not null)
                 {
                     try
@@ -290,7 +295,8 @@ public partial class MainWindow : FluentWindow
         _cts?.Cancel();
     }
 
-    async Task OnScanCompleteAsync(ScanResultManaged result, IReadOnlyList<TargetScanResult> targets, int generation)
+    async Task OnScanCompleteAsync(ScanResultManaged result, IReadOnlyList<TargetScanResult> targets,
+        int generation, IReadOnlyList<string> limitations)
     {
         _statSize.Text          = Helpers.SizeFormatter.FormatBytes(result.TotalBytes);
         _statFiles.Text         = $"{result.FileCount:N0} files, {result.DirCount:N0} dirs";
@@ -303,7 +309,7 @@ public partial class MainWindow : FluentWindow
             : $"{targets.Count} targets ({mftCount} MFT, {directoryCount} directory)";
         _statScannerSep.Visibility = Visibility.Visible;
         _statCurrent.Text = "";
-        await DisplayResultAsync(result, generation, targets);
+        await DisplayResultAsync(result, generation, targets, limitations);
         await UpdateVolumeStatusAsync(targets, generation);
     }
 
@@ -320,7 +326,8 @@ public partial class MainWindow : FluentWindow
     }
 
     async Task<bool> DisplayResultAsync(ScanResultManaged result, int generation,
-        IReadOnlyList<TargetScanResult>? targets = null)
+        IReadOnlyList<TargetScanResult>? targets = null,
+        IReadOnlyList<string>? limitations = null)
     {
         (ScanResultMetrics Metrics, ScanNavigation? Navigation) derived = await Task.Run(() =>
         {
@@ -336,6 +343,7 @@ public partial class MainWindow : FluentWindow
             _previousResult = _result;
         _result = result;
         _targets = targets ?? [];
+        _summaryLimitations = limitations ?? [];
         if (_shellActionsMenu is not null) _shellActionsMenu.ItemPath = null;
         _metrics = derived.Metrics;
         _navigation = derived.Navigation;
@@ -346,6 +354,7 @@ public partial class MainWindow : FluentWindow
         _distributionView.SetResult(result);
         _anomaliesView.SetResult(result);
         _cleanupRulesView.SetResult(result);
+        _diskUsageSummaryView.SetResult(result, limitations: _summaryLimitations);
         _comparisonView.SetResults(_previousResult, result);
         _duplicatesView.SetRoots((targets ?? []).Select(target => target.Path));
         bool hasNodes = result.Nodes.Length > 0;
@@ -385,6 +394,8 @@ public partial class MainWindow : FluentWindow
         if (volumes.Count == 0)
         {
             _statVolume.Text = roots.Length == 0 ? string.Empty : "Volume information unavailable";
+            if (_result is not null)
+                _diskUsageSummaryView.SetResult(_result, limitations: _summaryLimitations);
             return;
         }
 
@@ -401,6 +412,8 @@ public partial class MainWindow : FluentWindow
                 $"({SizeFormatter.FormatBytes(volume.FreeBytes)} free) · " +
                 $"{SizeFormatter.FormatBytes(volume.ClusterSize)} clusters · " +
                 $"serial {volume.SerialNumberText}";
+            if (_result is not null)
+                _diskUsageSummaryView.SetResult(_result, volume.TotalBytes, _summaryLimitations);
             return;
         }
 
@@ -410,6 +423,8 @@ public partial class MainWindow : FluentWindow
         _statVolume.Text =
             $"{volumes.Count} volumes · {SizeFormatter.FormatBytes(used)} used of " +
             $"{SizeFormatter.FormatBytes(total)} ({SizeFormatter.FormatBytes(free)} free)";
+        if (_result is not null)
+            _diskUsageSummaryView.SetResult(_result, total, _summaryLimitations);
     }
 
     static ulong SumSaturating(IEnumerable<ulong> values)
@@ -525,6 +540,14 @@ public partial class MainWindow : FluentWindow
     }
 
     void OnCleanupNodeActivated(uint nodeIndex)
+    {
+        if (_result is null || nodeIndex >= _result.Nodes.Length) return;
+        _navigationBar.NavigateTo(nodeIndex);
+        ActivateNode(nodeIndex);
+        _contentTabs.SelectedIndex = 0;
+    }
+
+    void OnSummaryNodeActivated(uint nodeIndex)
     {
         if (_result is null || nodeIndex >= _result.Nodes.Length) return;
         _navigationBar.NavigateTo(nodeIndex);

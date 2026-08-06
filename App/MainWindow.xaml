@@ -171,6 +171,10 @@
             </StackPanel>
            </Grid>
           </TabItem>
+          <TabItem Header="Summary">
+            <controls:DiskUsageSummaryView x:Name="_diskUsageSummaryView"
+                                           NodeActivated="OnSummaryNodeActivated" />
+          </TabItem>
           <TabItem Header="Search">
             <controls:SearchResultsView x:Name="_searchView"
                                         NodeActivated="OnSearchNodeActivated" />
