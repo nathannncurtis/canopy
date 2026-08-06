@@ -38,10 +38,14 @@ public static class DuplicateFileFinder
                      .OrderBy(group => group.Key))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            List<FileCandidate> physicalFiles = DistinctPhysicalFiles(sizeGroup, options);
+            if (physicalFiles.Count < 2) continue;
             var fastGroups = new Dictionary<ulong, List<FileCandidate>>();
-            foreach (FileCandidate file in sizeGroup)
+            foreach (FileCandidate file in physicalFiles)
             {
-                ulong hash = await FastHashAsync(file.Path, file.Size, cancellationToken).ConfigureAwait(false);
+                ulong hash;
+                try { hash = await FastHashAsync(file.Path, file.Size, cancellationToken).ConfigureAwait(false); }
+                catch (Exception ex) when (ShouldSkip(ex, options)) { continue; }
                 if (!fastGroups.TryGetValue(hash, out List<FileCandidate>? group))
                     fastGroups.Add(hash, group = []);
                 group.Add(file);
@@ -52,7 +56,9 @@ public static class DuplicateFileFinder
                 var verified = new Dictionary<string, List<FileCandidate>>(StringComparer.Ordinal);
                 foreach (FileCandidate file in fastGroup)
                 {
-                    string hash = await FullHashAsync(file.Path, file.Size, cancellationToken).ConfigureAwait(false);
+                    string hash;
+                    try { hash = await FullHashAsync(file.Path, file.Size, cancellationToken).ConfigureAwait(false); }
+                    catch (Exception ex) when (ShouldSkip(ex, options)) { continue; }
                     if (!verified.TryGetValue(hash, out List<FileCandidate>? group))
                         verified.Add(hash, group = []);
                     group.Add(file);
@@ -80,13 +86,12 @@ public static class DuplicateFileFinder
         CancellationToken cancellationToken)
     {
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var identities = new HashSet<FileIdentity>();
         var files = new List<FileCandidate>();
         var enumeration = new EnumerationOptions
         {
             RecurseSubdirectories = true,
             IgnoreInaccessible = options.IgnoreInaccessible,
-            AttributesToSkip = FileAttributes.ReparsePoint,
+            AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System,
             ReturnSpecialDirectories = false,
         };
 
@@ -113,19 +118,36 @@ public static class DuplicateFileFinder
 
         void Add(string path)
         {
-            string fullPath = Path.GetFullPath(path);
-            if (!paths.Add(fullPath))
-                return;
-            var info = new FileInfo(fullPath);
-            if (info.Length < options.MinimumSize)
-                return;
-
-            FileIdentity? identity = TryGetIdentity(fullPath);
-            if (identity is not null && !identities.Add(identity.Value))
-                return;
-            files.Add(new(fullPath, info.Length));
+            try
+            {
+                string fullPath = Path.GetFullPath(path);
+                if (!paths.Add(fullPath)) return;
+                long length = new FileInfo(fullPath).Length;
+                if (length >= options.MinimumSize) files.Add(new(fullPath, length));
+            }
+            catch (Exception ex) when (ShouldSkip(ex, options)) { }
         }
     }
+
+    static List<FileCandidate> DistinctPhysicalFiles(
+        IEnumerable<FileCandidate> files, DuplicateFileOptions options)
+    {
+        var identities = new HashSet<FileIdentity>();
+        var distinct = new List<FileCandidate>();
+        foreach (FileCandidate file in files)
+        {
+            try
+            {
+                FileIdentity? identity = TryGetIdentity(file.Path);
+                if (identity is null || identities.Add(identity.Value)) distinct.Add(file);
+            }
+            catch (Exception ex) when (ShouldSkip(ex, options)) { }
+        }
+        return distinct;
+    }
+
+    static bool ShouldSkip(Exception exception, DuplicateFileOptions options) =>
+        options.IgnoreInaccessible && exception is (IOException or UnauthorizedAccessException);
 
     static async Task<ulong> FastHashAsync(string path, long expectedSize, CancellationToken cancellationToken)
     {
@@ -135,12 +157,14 @@ public static class DuplicateFileFinder
         byte[] buffer = ArrayPool<byte>.Shared.Rent(SampleBytes);
         try
         {
-            int first = await stream.ReadAsync(buffer.AsMemory(0, SampleBytes), cancellationToken).ConfigureAwait(false);
+            int first = await stream.ReadAtLeastAsync(
+                buffer.AsMemory(0, SampleBytes), SampleBytes, throwOnEndOfStream: false, cancellationToken).ConfigureAwait(false);
             hash = Mix(hash, buffer.AsSpan(0, first));
             if (expectedSize > SampleBytes)
             {
                 stream.Seek(Math.Max(SampleBytes, expectedSize - SampleBytes), SeekOrigin.Begin);
-                int last = await stream.ReadAsync(buffer.AsMemory(0, SampleBytes), cancellationToken).ConfigureAwait(false);
+                int last = await stream.ReadAtLeastAsync(
+                    buffer.AsMemory(0, SampleBytes), SampleBytes, throwOnEndOfStream: false, cancellationToken).ConfigureAwait(false);
                 hash = Mix(hash, buffer.AsSpan(0, last));
             }
             EnsureLength(stream, expectedSize, path);
@@ -161,7 +185,7 @@ public static class DuplicateFileFinder
     }
 
     static FileStream OpenRead(string path) => new(
-        path, FileMode.Open, FileAccess.Read, FileShare.Read,
+        path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
         128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
     static void EnsureLength(FileStream stream, long expectedSize, string path)
@@ -188,7 +212,8 @@ public static class DuplicateFileFinder
     {
         if (!OperatingSystem.IsWindows())
             return null;
-        using SafeFileHandle handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using SafeFileHandle handle = File.OpenHandle(
+            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         if (!GetFileInformationByHandle(handle, out ByHandleFileInformation info))
             return null;
         return new(info.VolumeSerialNumber, ((ulong)info.FileIndexHigh << 32) | info.FileIndexLow);
