@@ -1,0 +1,61 @@
+<UserControl x:Class="SizeMonitor.Controls.StorageDistributionView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="Storage distribution">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+            <Label Content="Group by:" Target="{Binding ElementName=_grouping}" Padding="0,0,8,0"
+                   VerticalAlignment="Center" />
+            <ComboBox x:Name="_grouping" Width="160" SelectedIndex="0"
+                      SelectionChanged="OnGroupingChanged"
+                      ToolTip="Choose how file storage is grouped"
+                      AutomationProperties.Name="Storage grouping">
+                <ComboBoxItem Content="File extension" />
+                <ComboBoxItem Content="File category" />
+            </ComboBox>
+        </StackPanel>
+
+        <TextBlock Grid.Row="1" x:Name="_status" Margin="0,0,0,8"
+                   Text="Run a scan to view storage distribution."
+                   AutomationProperties.LiveSetting="Polite"
+                   AutomationProperties.Name="Storage distribution status" />
+
+        <DataGrid Grid.Row="2" x:Name="_distribution" AutoGenerateColumns="False"
+                  IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                  SelectionMode="Single" SelectionUnit="FullRow"
+                  EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                  VirtualizingPanel.IsVirtualizing="True"
+                  VirtualizingPanel.VirtualizationMode="Recycling"
+                  ScrollViewer.CanContentScroll="True"
+                  AutomationProperties.Name="Storage distribution chart data">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Group" Binding="{Binding Key}" Width="180" />
+                <DataGridTextColumn Header="Files" Binding="{Binding FileCount, StringFormat=N0}"
+                                    Width="100" />
+                <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat=N0}"
+                                    Width="130" />
+                <DataGridTemplateColumn Header="Share" Width="*" MinWidth="180"
+                                        SortMemberPath="Percentage">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Grid ToolTip="{Binding Percentage, StringFormat={}{0:F2}% of file storage}">
+                                <ProgressBar Minimum="0" Maximum="100" Height="18"
+                                             Value="{Binding Percentage}"
+                                             AutomationProperties.Name="{Binding Key, StringFormat={}Storage share for {0}}"
+                                             AutomationProperties.HelpText="{Binding Percentage, StringFormat={}{0:F2} percent}" />
+                                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Text="{Binding Percentage, StringFormat={}{0:F2}%}" />
+                            </Grid>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>
