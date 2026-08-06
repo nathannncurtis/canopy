@@ -38,6 +38,17 @@ public sealed class StorageDistributionTests
     }
 
     [Fact]
+    public void TreatsSingleDotfilesAsHavingNoExtension()
+    {
+        IReadOnlyList<StorageDistributionBucket> buckets = StorageDistribution.ByExtension(
+            Result([File(10), File(20)], [".gitignore", ".config.json"]),
+            TestContext.Current.CancellationToken);
+
+        Assert.Contains(buckets, item => item.Key == StorageDistribution.NoExtension && item.Bytes == 10);
+        Assert.Contains(buckets, item => item.Key == ".json" && item.Bytes == 20);
+    }
+
+    [Fact]
     public void MapsUsefulFileCategoriesAndFallsBackToOther()
     {
         ScanResultManaged result = Result(
