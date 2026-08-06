@@ -57,7 +57,7 @@
                   MouseDoubleClick="OnResultDoubleClick">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="180" />
-                <DataGridTextColumn Header="Path" Binding="{Binding Path}" Width="*" />
+                <DataGridTextColumn Header="Relative path" Binding="{Binding RelativePath}" Width="*" />
                 <DataGridTextColumn Header="Bytes" Binding="{Binding Size, StringFormat=N0}"
                                     Width="110" />
                 <DataGridTextColumn Header="Depth" Binding="{Binding Depth}" Width="65" />
