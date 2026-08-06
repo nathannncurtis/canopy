@@ -58,13 +58,19 @@
                        IsEnabled="False"
                        Click="OnCancel" />
 
-            <ui:Button Grid.Column="4"
-                       x:Name="_btnExport"
-                       Content="Export"
-                       Margin="8,0,0,0"
-                       IsEnabled="False"
-                       ToolTip="Export completed results as CSV or JSON"
-                       Click="OnExport" />
+            <Menu Grid.Column="4" Margin="8,0,0,0" VerticalAlignment="Center">
+                <MenuItem Header="_File">
+                    <MenuItem x:Name="_openSnapshotMenuItem" Header="_Open snapshot..."
+                              Click="OnOpenSnapshot" />
+                    <MenuItem x:Name="_saveSnapshotMenuItem" Header="_Save snapshot..."
+                              IsEnabled="False" Click="OnSaveSnapshot" />
+                    <Separator />
+                    <MenuItem x:Name="_exportMenuItem" Header="_Export results..."
+                              IsEnabled="False" Click="OnExport" />
+                    <MenuItem Header="Export _diagnostics..."
+                              Click="OnExportDiagnostics" />
+                </MenuItem>
+            </Menu>
 
             <ui:InfoBadge Grid.Column="5"
                           x:Name="_elevBadge"
