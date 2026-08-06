@@ -39,19 +39,40 @@ public sealed record ScanOptions
     public IReadOnlyList<string> ExcludedPatterns { get; init; } = [];
     public IReadOnlyList<string> ExcludedExtensions { get; init; } = [];
 
-    internal void Validate()
+    public void Validate()
     {
+        if (MaximumDepth == 0)
+            throw new ArgumentOutOfRangeException(nameof(MaximumDepth),
+                "MaximumDepth must be at least 1; use null for no limit.");
+        if (MaximumFileSize == 0)
+            throw new ArgumentOutOfRangeException(nameof(MaximumFileSize),
+                "MaximumFileSize must be at least 1; use null for no limit.");
         if (MaximumFileSize is { } maximum && MinimumFileSize > maximum)
             throw new ArgumentException("MinimumFileSize cannot exceed MaximumFileSize.");
-        if (WorkerThreads is > 1024)
+        if (WorkerThreads == 0)
             throw new ArgumentOutOfRangeException(nameof(WorkerThreads),
-                "WorkerThreads cannot exceed 1024.");
+                "WorkerThreads must be at least 1; use null for automatic selection.");
+        if (WorkerThreads is > 32)
+            throw new ArgumentOutOfRangeException(nameof(WorkerThreads),
+                "WorkerThreads cannot exceed 32.");
         ValidateList(ExcludedPatterns, nameof(ExcludedPatterns));
         ValidateList(ExcludedExtensions, nameof(ExcludedExtensions));
+        foreach (string extension in ExcludedExtensions)
+        {
+            string value = extension.Trim();
+            int star = value.IndexOf('*');
+            if (value.Contains('?') || star >= 0 && (star != 0 || !value.StartsWith("*.", StringComparison.Ordinal) ||
+                                                     value.IndexOf('*', 1) >= 0))
+                throw new ArgumentException(
+                    "ExcludedExtensions accepts extensions such as .tmp or *.tmp, not glob patterns.",
+                    nameof(ExcludedExtensions));
+        }
     }
 
     internal string? BuildExcludedPatternList() => Join(ExcludedPatterns);
-    internal string? BuildExcludedExtensionList() => Join(ExcludedExtensions);
+    internal string? BuildExcludedExtensionList() => ExcludedExtensions.Count == 0
+        ? null
+        : string.Join(';', ExcludedExtensions.Select(NormalizeExtension));
 
     internal SmonScanOptionsNative ToNative(IntPtr patterns, IntPtr extensions)
     {
@@ -83,7 +104,7 @@ public sealed record ScanOptions
             string? value = values[i];
             if (string.IsNullOrWhiteSpace(value))
                 throw new ArgumentException($"{parameterName} cannot contain empty values.", parameterName);
-            if (value.IndexOfAny([';', ',', '\r', '\n']) >= 0)
+            if (value.IndexOfAny([';', ',', '\r', '\n', '\0']) >= 0)
                 throw new ArgumentException(
                     $"{parameterName} values cannot contain list separators.", parameterName);
         }
@@ -91,4 +112,12 @@ public sealed record ScanOptions
 
     static string? Join(IReadOnlyList<string> values) =>
         values.Count == 0 ? null : string.Join(';', values);
+
+    static string NormalizeExtension(string value)
+    {
+        string trimmed = value.Trim();
+        if (trimmed.StartsWith("*.", StringComparison.Ordinal)) return trimmed[1..];
+        if (trimmed.StartsWith('*')) return trimmed[1..];
+        return trimmed;
+    }
 }
