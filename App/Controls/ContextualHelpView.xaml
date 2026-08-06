@@ -1,0 +1,50 @@
+<UserControl x:Class="SizeMonitor.Controls.ContextualHelpView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="Canopy contextual help">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <TextBlock Text="Help and concepts" FontSize="22" FontWeight="SemiBold"
+                   Margin="0,0,0,12" AutomationProperties.HeadingLevel="Level1" />
+        <ListBox x:Name="_topics" Grid.Row="1" BorderThickness="0"
+                 SelectionChanged="OnSelectionChanged"
+                 AutomationProperties.Name="Help topics">
+            <ListBoxItem Tag="Size" AutomationProperties.Name="Understanding file sizes">
+                <Expander Header="Understanding sizes" IsExpanded="True" Padding="4">
+                    <StackPanel MaxWidth="760">
+                        <TextBlock TextWrapping="Wrap" Text="Canopy reports allocated size: the disk space currently reserved for a file. It can differ from the logical size shown by some file properties because of compression, sparse files, resident NTFS data, and cluster rounding." />
+                        <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Text="Folder sizes include their descendants. A combined scan adds a synthetic root, so its size is the total of every non-overlapping target." />
+                        <TextBlock Margin="0,8,0,0" FontWeight="SemiBold" Text="Tip: use KiB, MiB, GiB, or TiB when you mean binary units." />
+                    </StackPanel>
+                </Expander>
+            </ListBoxItem>
+            <ListBoxItem Tag="Elevation" AutomationProperties.Name="Elevation and scanner behavior">
+                <Expander Header="Elevation and scan speed" Padding="4">
+                    <StackPanel MaxWidth="760">
+                        <TextBlock TextWrapping="Wrap" Text="On an NTFS volume, an elevated Canopy process can read the Master File Table for faster metadata enumeration. Without elevation—or for network, non-NTFS, reparse, and forced-directory scans—Canopy walks directories using ordinary file APIs." />
+                        <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Text="Elevation is optional. If access is denied, retry only when you trust the target and understand why administrative access is required. Exclusions and depth limits may intentionally produce partial totals." />
+                    </StackPanel>
+                </Expander>
+            </ListBoxItem>
+            <ListBoxItem Tag="Privacy" AutomationProperties.Name="Privacy and diagnostic data">
+                <Expander Header="Privacy and diagnostics" Padding="4">
+                    <StackPanel MaxWidth="760">
+                        <TextBlock TextWrapping="Wrap" Text="Scans run locally. Saved snapshots, exports, history, and filter presets are written only when you request or enable them. File and folder names can be sensitive even when file contents are never read." />
+                        <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Text="Diagnostic bundles redact Windows paths by default. Review any bundle, export, or snapshot before sharing it. The local API binds to loopback and requires its randomly generated bearer token." />
+                    </StackPanel>
+                </Expander>
+            </ListBoxItem>
+            <ListBoxItem Tag="States" AutomationProperties.Name="Empty and error states">
+                <Expander Header="When a view is empty" Padding="4">
+                    <StackPanel MaxWidth="760">
+                        <TextBlock TextWrapping="Wrap" Text="No data can mean a scan has not run, filters found no matches, a target is genuinely empty, or access failed. Check the status text and per-target failures before treating zero bytes as authoritative." />
+                        <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Text="Useful next steps are to clear filters, verify the path is online, review exclusions, retry the failed target, or run with elevation when an NTFS permission error specifically calls for it." />
+                    </StackPanel>
+                </Expander>
+            </ListBoxItem>
+        </ListBox>
+    </Grid>
+</UserControl>
