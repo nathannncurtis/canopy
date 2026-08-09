@@ -23,6 +23,33 @@ First create the normal self-contained distribution so `Canopy.exe` and `Canopy.
 
 The script discovers `makeappx.exe` from the Windows SDK, stages the payload in a unique temporary directory, normalizes the version to four components, and creates architecture-aware package identity. It creates deterministic placeholder tiles suitable for development; replace them with final branded PNG assets before Store submission.
 
+Pass `-Architecture arm64` for a native ARM64 payload. ARM64 packages must contain
+the `win-arm64` managed apphost and an ARM64 `Canopy.Core.dll`; x64 binaries or x64
+emulation are not accepted as substitutes.
+
+## ARM64 and lightweight framework-dependent artifacts
+
+The architecture build script compiles and tests the native core on the selected
+architecture, publishes the matching WPF apphost, and keeps the native DLL beside it:
+
+```powershell
+./packaging/scripts/Build-ArchitectureArtifacts.ps1 `
+  -Architecture arm64 -Version 1.0.0 -CompareSelfContained
+```
+
+Supported values are `x64` and `arm64`. ARM64 excludes the x64 MASM object entirely
+and uses the native ARM64 intrinsic/scalar dispatch. The framework-dependent ZIP is
+checked to exclude `coreclr.dll` and to be smaller than its self-contained comparison.
+It requires the matching **.NET Desktop Runtime 9** architecture. `Canopy.exe` uses
+the standard .NET apphost missing-framework dialog, and `RUNTIME-REQUIRED.txt` gives
+the direct prerequisite and download location before launch.
+
+CI runs the ABI, filesystem corpus, architecture-dispatch parity, managed contracts,
+and artifact-size checks on native x64 and native Windows ARM64 runners. A local x64
+machine without the Visual Studio ARM64 C++ tools cannot execute that hardware gate;
+installing those tools permits cross-compilation, but representative scans and intrinsic
+dispatch still require the ARM64 CI runner or physical ARM64 Windows hardware.
+
 For a locally trusted package, pass `-PfxPath` and `-PfxPassword`. The certificate subject must exactly match `-Publisher`. Never commit a PFX or password. CI should inject signing material from an approved secret store and delete it after signing.
 
 `Canopy.Package.wapproj` is included for Visual Studio's Windows Application Packaging Project tooling. The script is the headless build path and ensures the native DLL remains beside the executable, avoiding loader failures.

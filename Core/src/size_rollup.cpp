@@ -1,10 +1,8 @@
 #include "size_rollup.h"
 #include "cpu_features.h"
+#include "architecture_dispatch.h"
 #include "../include/smon_api.h"
 #include "../asm/simd_sum.h"
-#if defined(SMON_ENABLE_AVX2_SUM)
-static const bool s_have_avx2 = CpuHasAvx2();
-#endif
 
 void RollupSizes(ScanResult* result)
 {
@@ -43,8 +41,8 @@ void RollupSizes(ScanResult* result)
                 ++root_count;
         }
 
-#if defined(SMON_ENABLE_AVX2_SUM)
-        if (s_have_avx2 && root_count > 1) {
+#if defined(SMON_ENABLE_AVX2_SUM) || defined(_M_ARM64) || defined(__aarch64__)
+        if (SmonGetSumPath() != SmonSumPath::Scalar && root_count > 1) {
             // Gather root sizes into a contiguous array for the SIMD sum.
             uint64_t* scratch = new uint64_t[root_count];
             uint32_t  idx     = 0;
@@ -52,7 +50,7 @@ void RollupSizes(ScanResult* result)
                 if (result->nodes[i].parent == UINT32_MAX)
                     scratch[idx++] = result->nodes[i].size;
             }
-            total_bytes = SmonSumU64_AVX2(scratch, root_count);
+            total_bytes = SmonSumU64_Architecture(scratch, root_count);
             delete[] scratch;
         } else
 #endif

@@ -43,6 +43,12 @@ int wmain(int argc, wchar_t* argv[])
                L"structured error capability") ||
         !Check((capabilities.flags & SMON_CAP_SCAN_TELEMETRY) != 0,
                L"scan telemetry capability") ||
+#if defined(_M_ARM64)
+        !Check((capabilities.flags & SMON_CAP_ARM64_INTRINSICS) != 0,
+               L"ARM64 intrinsic capability") ||
+        !Check((capabilities.flags & SMON_CAP_AVX2_ASM) == 0,
+               L"ARM64 build excludes x64 assembly capability") ||
+#endif
         !Check(capabilities.max_nodes > 0 && capabilities.max_name_bytes > 0,
                L"arena capabilities"))
         return 1;

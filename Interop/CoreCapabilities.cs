@@ -14,6 +14,7 @@ public enum CoreCapability : ulong
     ScanOptions = 0x00000010,
     ErrorInfo = 0x00000020,
     ScanTelemetry = 0x00000040,
+    Arm64Intrinsics = 0x00000080,
 }
 
 [StructLayout(LayoutKind.Sequential)]
