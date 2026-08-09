@@ -4,6 +4,9 @@
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              xmlns:local="clr-namespace:SizeMonitor.Controls">
     <UserControl.Resources>
+        <Style TargetType="{x:Type TreeViewItem}">
+            <Setter Property="MinHeight" Value="{DynamicResource Canopy.TreeItemMinHeight}" />
+        </Style>
         <HierarchicalDataTemplate x:Key="NodeTemplate"
                                   DataType="{x:Type local:SizeNodeView}"
                                   ItemsSource="{Binding Children}">
@@ -33,6 +36,7 @@
     </UserControl.Resources>
 
     <TreeView x:Name="_tree"
+              FontSize="{DynamicResource Canopy.TreeFontSize}"
               ItemTemplate="{StaticResource NodeTemplate}"
               Background="Transparent" BorderThickness="0"
               VirtualizingPanel.IsVirtualizing="True"

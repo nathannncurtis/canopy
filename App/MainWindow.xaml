@@ -8,7 +8,10 @@
         WindowStartupLocation="CenterScreen"
         ExtendsContentIntoTitleBar="True"
         WindowBackdropType="Mica"
-        WindowCornerPreference="Round">
+        WindowCornerPreference="Round"
+        FontSize="{DynamicResource Canopy.FontSize}"
+        Foreground="{DynamicResource Canopy.WindowForegroundBrush}"
+        Background="{DynamicResource Canopy.WindowBackgroundBrush}">
 
     <Grid>
         <Grid.RowDefinitions>
@@ -224,6 +227,10 @@
           </TabItem>
           <TabItem Header="Privacy">
             <controls:ObservabilitySettingsView x:Name="_observabilitySettingsView" />
+          </TabItem>
+          <TabItem Header="Appearance">
+            <controls:AppearanceSettingsView x:Name="_appearanceSettingsView"
+                                             PreferencesApplied="OnAppearancePreferencesApplied" />
           </TabItem>
           <TabItem Header="Updates">
             <controls:UpdateSettingsView x:Name="_updateSettingsView" />
