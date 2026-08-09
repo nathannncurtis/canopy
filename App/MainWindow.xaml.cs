@@ -45,6 +45,7 @@ public partial class MainWindow : FluentWindow
     bool                     _scanInProgress;
     bool                     _diagnosticsInProgress;
     bool                     _synchronizingTreeSelection;
+    ResultSelectionSummary  _selection = new([], 0, 0, 0);
     int                      _resultGeneration;
 
     public MainWindow()
@@ -65,6 +66,7 @@ public partial class MainWindow : FluentWindow
         _treeHost.Child = _treeView;
         _treeView.NodeSelected += OnTreeNodeSelected;
         _treeView.NodeActivated += OnTreeNodeActivated;
+        _treeView.MultiSelectionChanged += OnMultiSelectionChanged;
         _shellActionsMenu = new ShellItemActionsMenu();
         _shellActionsMenu.ActionFailed += OnShellActionFailed;
         _treeView.ContextMenu = _shellActionsMenu;
@@ -288,6 +290,8 @@ public partial class MainWindow : FluentWindow
         _statScanner.Text       = "";
         _statVolume.Text        = "";
         _statSelection.Text     = "";
+        _selection = new([], 0, 0, 0);
+        _selectionActionsBar.SetSelection(null);
         _distributionView.SetResult(null);
         _cleanupRulesView.SetResult(null);
         _diskUsageSummaryView.SetResult(null);
@@ -918,6 +922,8 @@ public partial class MainWindow : FluentWindow
         if (_shellActionsMenu is not null) _shellActionsMenu.ItemPath = null;
         _metrics = derived.Metrics;
         _navigation = derived.Navigation;
+        _selection = new([], 0, 0, 0);
+        _selectionActionsBar.SetSelection(null);
         _treeView?.PopulatePrepared(result, projectedTree);
         _searchView.SetResult(result);
         _navigationBar.SetNavigation(_navigation);
@@ -1086,6 +1092,61 @@ public partial class MainWindow : FluentWindow
     {
         _navigationBar.NavigateTo(nodeIndex);
         ActivateNode(nodeIndex, selectTree: false);
+    }
+
+    void OnMultiSelectionChanged(ResultSelectionSummary selection)
+    {
+        _selection = selection;
+        _selectionActionsBar.SetSelection(selection);
+        _statSelection.Text = selection.Items.Count == 0
+            ? string.Empty
+            : $"{selection.Items.Count:N0} selected · {SizeFormatter.FormatBytes(selection.TotalBytes)} · " +
+              $"{selection.FileCount:N0} files, {selection.DirectoryCount:N0} dirs";
+    }
+
+    async void OnSelectionActionRequested(object sender, SelectionAction action)
+    {
+        if (_selection.Items.Count == 0) return;
+        try
+        {
+            if (action is SelectionAction.CopyPaths or SelectionAction.CopyText or SelectionAction.CopyCsv)
+            {
+                string text = action switch
+                {
+                    SelectionAction.CopyPaths => string.Join(Environment.NewLine, _selection.Items.Select(item => item.Path)),
+                    SelectionAction.CopyText => ResultSelectionFormatter.ToText(_selection),
+                    _ => ResultSelectionFormatter.ToCsv(_selection),
+                };
+                await ShellItemActions.CopyTextAsync(text);
+                _statCurrent.Text = $"Copied {_selection.Items.Count:N0} selected item(s).";
+                return;
+            }
+
+            ResultSelectionActionOutcome outcome = await ResultSelectionActions.ExecuteAsync(_selection, (item, _) =>
+            {
+                if (action == SelectionAction.OpenContaining)
+                    ShellItemActions.OpenContainingFolder(item.Path);
+                else if (item.IsDirectory)
+                    ShellItemActions.OpenFolder(item.Path);
+                else
+                    ShellItemActions.OpenFile(item.Path);
+                return Task.CompletedTask;
+            });
+            foreach (ResultSelectionActionFailure failure in outcome.Failures)
+                Logger.Error($"selection action failed for '{failure.Path}'",
+                    new IOException(failure.Error));
+            _statCurrent.Text = outcome.Failures.Count == 0
+                ? $"Opened {outcome.Succeeded:N0} selected item(s)."
+                : $"Opened {outcome.Succeeded:N0} of {outcome.Requested:N0}; " +
+                  $"{outcome.Failures.Count:N0} unavailable. {outcome.Failures[0].Error}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                      ArgumentException or InvalidOperationException or
+                                      System.Runtime.InteropServices.COMException)
+        {
+            Logger.Error("selection action failed", ex);
+            _statCurrent.Text = $"Selection action failed: {ex.Message}";
+        }
     }
 
     void OnSearchNodeActivated(uint nodeIndex)

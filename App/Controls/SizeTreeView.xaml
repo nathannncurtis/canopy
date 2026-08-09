@@ -12,23 +12,28 @@
                                   ItemsSource="{Binding Children}">
             <Grid Margin="0,1">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="28" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="80" />
                     <ColumnDefinition Width="70" />
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Grid.Column="0" Text="{Binding Name}"
+                <CheckBox Grid.Column="0" IsChecked="{Binding IsMarked, Mode=OneWay}"
+                          Checked="OnMarkChecked" Unchecked="OnMarkUnchecked"
+                          ToolTip="Mark this item for multi-selection"
+                          AutomationProperties.Name="Mark item for selection" />
+                <TextBlock Grid.Column="1" Text="{Binding Name}"
                            TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                            Padding="2,0" />
 
-                <ProgressBar Grid.Column="1" Height="8" VerticalAlignment="Center"
+                <ProgressBar Grid.Column="2" Height="8" VerticalAlignment="Center"
                              Margin="4,0"
                              Minimum="0" Maximum="1"
                              Value="{Binding SizeBarFraction, Mode=OneWay}"
                              Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"
                              Background="{DynamicResource CardStrokeColorDefaultBrush}" />
 
-                <TextBlock Grid.Column="2" Text="{Binding SizeText}"
+                <TextBlock Grid.Column="3" Text="{Binding SizeText}"
                            HorizontalAlignment="Right" VerticalAlignment="Center"
                            Opacity="0.7" FontSize="11" />
             </Grid>

@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Interop;
+using SizeMonitor.Interop;
 
 namespace SizeMonitor.Helpers;
 
@@ -41,13 +42,12 @@ public static class ShellItemActions
     public static void OpenContainingFolder(string path)
     {
         ShellItem item = ResolveExisting(path);
-        if (item.Path.Contains('"'))
-            throw new ArgumentException("Explorer cannot select a path containing a quote.", nameof(path));
-        var startInfo = new ProcessStartInfo("explorer.exe")
+        ShellLaunchPlan plan = ShellLaunchPlans.SelectInExplorer(item.Path);
+        var startInfo = new ProcessStartInfo(plan.FileName)
         {
             UseShellExecute = false,
-            Arguments = $"/select,\"{item.Path}\"",
         };
+        foreach (string argument in plan.Arguments) startInfo.ArgumentList.Add(argument);
         Start(startInfo);
     }
 
@@ -56,12 +56,18 @@ public static class ShellItemActions
         CancellationToken cancellationToken = default)
     {
         string fullPath = ResolveExisting(path).Path;
+        await CopyTextAsync(fullPath, cancellationToken);
+    }
+
+    public static async Task CopyTextAsync(string text, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
         cancellationToken.ThrowIfCancellationRequested();
 
         if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
         {
             await dispatcher.InvokeAsync(
-                () => Clipboard.SetText(fullPath),
+                () => Clipboard.SetText(text),
                 System.Windows.Threading.DispatcherPriority.Normal,
                 cancellationToken);
             return;
@@ -69,7 +75,7 @@ public static class ShellItemActions
 
         if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
             throw new InvalidOperationException("Clipboard access requires the WPF dispatcher or an STA thread.");
-        Clipboard.SetText(fullPath);
+        Clipboard.SetText(text);
     }
 
     public static void ShowProperties(string path)

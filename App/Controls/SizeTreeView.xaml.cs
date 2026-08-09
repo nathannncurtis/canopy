@@ -11,8 +11,12 @@ public partial class SizeTreeView : UserControl
 {
     public event Action<uint>? NodeSelected;
     public event Action<uint>? NodeActivated;
+    public event Action<ResultSelectionSummary>? MultiSelectionChanged;
     SizeNodeView[] _views = [];
     ScanResultManaged? _result;
+    readonly ResultSelectionModel _selection = new();
+    uint[] _displayOrder = [];
+    bool _syncingMarks;
 
     public SizeTreeView()
     {
@@ -30,6 +34,8 @@ public partial class SizeTreeView : UserControl
     {
         _result = result;
         _views = views;
+        _displayOrder = Flatten(views.Length == 0 ? null : views[0]).ToArray();
+        _selection.Clear();
         _tree.Items.Clear();
 
         if (result.Nodes.Length == 0) return;
@@ -143,7 +149,46 @@ public partial class SizeTreeView : UserControl
     void OnSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (e.NewValue is SizeNodeView view)
+        {
+            ApplySelection(view.Index, Keyboard.Modifiers);
             NodeSelected?.Invoke(view.Index);
+        }
+    }
+
+    void OnMarkChecked(object sender, RoutedEventArgs e) => OnMarkToggle(sender, true);
+    void OnMarkUnchecked(object sender, RoutedEventArgs e) => OnMarkToggle(sender, false);
+    void OnMarkToggle(object sender, bool requested)
+    {
+        if (_syncingMarks || sender is not CheckBox { DataContext: SizeNodeView view }) return;
+        bool selected = _selection.SelectedIndices.Contains(view.Index);
+        if (selected != requested) ApplySelection(view.Index, ModifierKeys.Control);
+    }
+
+    void ApplySelection(uint index, ModifierKeys modifiers)
+    {
+        uint[] before = _selection.SelectedIndices.ToArray();
+        if (modifiers.HasFlag(ModifierKeys.Shift)) _selection.SelectRange(index, _displayOrder);
+        else if (modifiers.HasFlag(ModifierKeys.Control)) _selection.Toggle(index);
+        else _selection.Replace(index);
+        _syncingMarks = true;
+        try
+        {
+            foreach (uint changed in before.Concat(_selection.SelectedIndices).Distinct())
+                if (changed < _views.Length) _views[changed].IsMarked = _selection.SelectedIndices.Contains(changed);
+        }
+        finally { _syncingMarks = false; }
+        if (_result is not null) MultiSelectionChanged?.Invoke(_selection.Summarize(_result));
+    }
+
+    static IEnumerable<uint> Flatten(SizeNodeView? root)
+    {
+        if (root is null) yield break;
+        var pending = new Stack<SizeNodeView>(); pending.Push(root);
+        while (pending.TryPop(out SizeNodeView? node))
+        {
+            yield return node.Index;
+            for (int i = node.Children.Count - 1; i >= 0; i--) pending.Push(node.Children[i]);
+        }
     }
 
     void OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -171,8 +216,8 @@ public partial class SizeTreeView : UserControl
 
     void OnKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
-        if (e.Key != System.Windows.Input.Key.Enter || _tree.SelectedItem is not SizeNodeView view) return;
-        NodeActivated?.Invoke(view.Index);
-        e.Handled = true;
+        if (_tree.SelectedItem is not SizeNodeView view) return;
+        if (e.Key == Key.Space) { ApplySelection(view.Index, ModifierKeys.Control); e.Handled = true; }
+        else if (e.Key == Key.Enter) { NodeActivated?.Invoke(view.Index); e.Handled = true; }
     }
 }

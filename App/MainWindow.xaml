@@ -158,6 +158,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
@@ -182,17 +183,21 @@
                                           PrimaryActionRequested="OnResultStatePrimary"
                                           SecondaryActionRequested="OnResultStateSecondary" />
 
-            <Border Grid.Row="2" Grid.Column="0"
+            <controls:SelectionActionsBar Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                                          x:Name="_selectionActionsBar"
+                                          ActionRequested="OnSelectionActionRequested" />
+
+            <Border Grid.Row="3" Grid.Column="0"
                     x:Name="_treeHost"
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
 
             <!-- column separator -->
-            <GridSplitter Grid.Row="2" Grid.Column="1" x:Name="_panelSplitter"
+            <GridSplitter Grid.Row="3" Grid.Column="1" x:Name="_panelSplitter"
                           Width="5" HorizontalAlignment="Stretch" ResizeDirection="Columns"
                           Background="{DynamicResource CardStrokeColorDefaultBrush}"
                           AutomationProperties.Name="Resize tree and treemap panels" />
 
-            <Border Grid.Row="2" Grid.Column="2"
+            <Border Grid.Row="3" Grid.Column="2"
                     x:Name="_treemapHost" />
 
            </Grid>
