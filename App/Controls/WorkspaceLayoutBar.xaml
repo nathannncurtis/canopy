@@ -1,0 +1,9 @@
+<UserControl x:Class="SizeMonitor.Controls.WorkspaceLayoutBar" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" AutomationProperties.Name="Workspace layout controls">
+  <StackPanel Orientation="Horizontal">
+    <Button Content="Split" Padding="10,3" Margin="0,0,4,0" Click="OnSplit" ToolTip="Split view (Ctrl+Alt+1)" AutomationProperties.Name="Show tree and treemap" />
+    <Button Content="Tree" Padding="10,3" Margin="0,0,4,0" Click="OnTree" ToolTip="Tree only (Ctrl+Alt+2)" AutomationProperties.Name="Show tree only" />
+    <Button Content="Treemap" Padding="10,3" Margin="0,0,4,0" Click="OnTreemap" ToolTip="Treemap only (Ctrl+Alt+3)" AutomationProperties.Name="Show treemap only" />
+    <Button x:Name="_detach" Content="Detach treemap" Padding="10,3" Margin="0,0,4,0" Click="OnDetach" ToolTip="Detach or attach treemap (Ctrl+Alt+D)" />
+    <Button x:Name="_fullScreen" Content="Full screen" Padding="10,3" Click="OnFullScreen" ToolTip="Full-screen treemap (F11)" />
+  </StackPanel>
+</UserControl>

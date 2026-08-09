@@ -1,5 +1,6 @@
 using System.Security.Principal;
 using System.Diagnostics;
+using System.ComponentModel;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -33,6 +34,13 @@ public partial class MainWindow : FluentWindow
     readonly AppCommandRegistry _commands = new();
     readonly ShortcutOverrideStore _shortcutStore = new(AppDataPaths.ShortcutOverrides);
     readonly HashSet<string> _dynamicCommandIds = new(StringComparer.OrdinalIgnoreCase);
+    readonly WorkspaceLayoutStore _workspaceLayoutStore = new(AppDataPaths.WorkspaceLayout);
+    WorkspaceLayoutState _workspaceLayout = new();
+    WorkspaceLayoutRuntimeState _workspaceRuntime = new();
+    Window? _detachedTreemapWindow;
+    bool _workspaceFullScreen;
+    WorkspacePanelMode _modeBeforeFullScreen = WorkspacePanelMode.Split;
+    WindowState _windowStateBeforeFullScreen;
     bool                     _paused;
     bool                     _scanInProgress;
     bool                     _diagnosticsInProgress;
@@ -46,6 +54,7 @@ public partial class MainWindow : FluentWindow
         SetupCommands();
         AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(OnWindowNavigationKeyDown));
         Loaded += OnLoaded;
+        Closing += OnWindowClosing;
     }
 
     void SetupControls()
@@ -200,6 +209,7 @@ public partial class MainWindow : FluentWindow
 
     async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        await RestoreWorkspaceLayoutAsync();
         // Hide elevation badge if running elevated.
         bool elevated = new WindowsPrincipal(WindowsIdentity.GetCurrent())
             .IsInRole(WindowsBuiltInRole.Administrator);
@@ -488,6 +498,155 @@ public partial class MainWindow : FluentWindow
         }
     }
 
+    async Task RestoreWorkspaceLayoutAsync()
+    {
+        try
+        {
+            WorkspaceLayoutState? saved = await _workspaceLayoutStore.LoadAsync();
+            if (saved is null) { ApplyWorkspaceMode(WorkspacePanelMode.Split); return; }
+            Rect work = SystemParameters.WorkArea;
+            _workspaceLayout = WorkspaceLayoutValidator.Normalize(saved, work.Left, work.Top, work.Width, work.Height);
+            _workspaceRuntime = new() { PanelMode = _workspaceLayout.PanelMode,
+                TreemapDetached = _workspaceLayout.TreemapDetached, Maximized = _workspaceLayout.Maximized };
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Left = _workspaceLayout.Left; Top = _workspaceLayout.Top;
+            Width = _workspaceLayout.Width; Height = _workspaceLayout.Height;
+            ApplyWorkspaceMode(_workspaceLayout.PanelMode);
+            if (_workspaceLayout.Maximized) WindowState = WindowState.Maximized;
+            if (_workspaceLayout.TreemapDetached) DetachTreemap();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        { Logger.Error("workspace layout could not be restored", ex); ApplyWorkspaceMode(WorkspacePanelMode.Split); }
+    }
+
+    void OnWindowClosing(object? sender, CancelEventArgs e)
+    {
+        bool wasDetached = _detachedTreemapWindow is not null;
+        if (_workspaceFullScreen) ExitWorkspaceFullScreen();
+        AttachTreemap();
+        Rect bounds = RestoreBounds;
+        double total = _treeColumn.ActualWidth + _treemapColumn.ActualWidth;
+        double fraction = total > 0 && _workspaceLayout.PanelMode == WorkspacePanelMode.Split
+            ? Math.Clamp(_treeColumn.ActualWidth / total, 0.15, 0.85) : _workspaceLayout.TreeFraction;
+        var state = _workspaceLayout with
+        {
+            Left = bounds.Left, Top = bounds.Top, Width = bounds.Width, Height = bounds.Height,
+            Maximized = WindowState == WindowState.Maximized,
+            TreeFraction = fraction,
+            TreemapDetached = wasDetached,
+        };
+        try { _workspaceLayoutStore.SaveAsync(state).GetAwaiter().GetResult(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        { Logger.Error("workspace layout could not be saved", ex); }
+    }
+
+    void OnWorkspaceModeRequested(WorkspacePanelMode mode) => ApplyWorkspaceMode(mode);
+    void OnWorkspaceDetachRequested()
+    {
+        if (_workspaceFullScreen) { _statCurrent.Text = "Exit full-screen mode before detaching the treemap."; return; }
+        if (_detachedTreemapWindow is null) DetachTreemap(); else AttachTreemap();
+    }
+    void OnWorkspaceFullScreenRequested() { if (_workspaceFullScreen) ExitWorkspaceFullScreen(); else EnterWorkspaceFullScreen(); }
+    void OnWorkspaceFullScreenButton(object sender, RoutedEventArgs e) => ExitWorkspaceFullScreen();
+
+    void ApplyWorkspaceMode(WorkspacePanelMode mode)
+    {
+        _workspaceRuntime = WorkspaceLayoutTransitions.SetPanelMode(_workspaceRuntime, mode);
+        mode = _workspaceRuntime.PanelMode;
+        _workspaceLayout = _workspaceLayout with
+        { PanelMode = _workspaceRuntime.FullScreen ? _workspaceRuntime.RestorePanelMode : mode };
+        RenderWorkspaceMode(mode);
+    }
+
+    void RenderWorkspaceMode(WorkspacePanelMode mode)
+    {
+        double fraction = Math.Clamp(_workspaceLayout.TreeFraction, 0.15, 0.85);
+        switch (mode)
+        {
+            case WorkspacePanelMode.Split:
+                _treeColumn.Width = new GridLength(fraction, GridUnitType.Star);
+                _splitterColumn.Width = new GridLength(5);
+                _treemapColumn.Width = new GridLength(1 - fraction, GridUnitType.Star);
+                _panelSplitter.Visibility = Visibility.Visible;
+                break;
+            case WorkspacePanelMode.TreeOnly:
+                _treeColumn.Width = new GridLength(1, GridUnitType.Star);
+                _splitterColumn.Width = new GridLength(0);
+                _treemapColumn.Width = new GridLength(0);
+                _panelSplitter.Visibility = Visibility.Collapsed;
+                break;
+            case WorkspacePanelMode.TreemapOnly:
+                _treeColumn.Width = new GridLength(0);
+                _splitterColumn.Width = new GridLength(0);
+                _treemapColumn.Width = new GridLength(1, GridUnitType.Star);
+                _panelSplitter.Visibility = Visibility.Collapsed;
+                break;
+        }
+    }
+
+    void DetachTreemap()
+    {
+        if (_treemap is null || _result is null)
+        { _statCurrent.Text = "Treemap is unavailable; run or open a scan before detaching the detail panel."; return; }
+        if (_detachedTreemapWindow is not null) return;
+        _treemapHost.Child = null;
+        var window = new Window
+        {
+            Title = "Canopy treemap", Width = 900, Height = 650,
+            MinWidth = 400, MinHeight = 300, Content = _treemap, Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        _detachedTreemapWindow = window;
+        _workspaceRuntime = WorkspaceLayoutTransitions.SetDetached(_workspaceRuntime, true);
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_detachedTreemapWindow, window))
+            { window.Content = null; _detachedTreemapWindow = null; _workspaceRuntime = WorkspaceLayoutTransitions.SetDetached(_workspaceRuntime, false); if (_treemapHost.Child is null) _treemapHost.Child = _treemap; _workspaceLayoutBar.SetState(false, _workspaceFullScreen); }
+        };
+        _workspaceLayoutBar.SetState(true, _workspaceFullScreen);
+        window.Show();
+    }
+
+    void AttachTreemap()
+    {
+        Window? window = _detachedTreemapWindow;
+        if (window is null) return;
+        window.Content = null; _detachedTreemapWindow = null;
+        if (_treemap is not null) _treemapHost.Child = _treemap;
+        _workspaceRuntime = WorkspaceLayoutTransitions.SetDetached(_workspaceRuntime, false);
+        window.Close();
+        _workspaceLayoutBar.SetState(false, _workspaceFullScreen);
+    }
+
+    void EnterWorkspaceFullScreen()
+    {
+        AttachTreemap();
+        _workspaceFullScreen = true; _modeBeforeFullScreen = _workspaceLayout.PanelMode;
+        _windowStateBeforeFullScreen = WindowState;
+        _workspaceRuntime = _workspaceRuntime with { Maximized = WindowState == WindowState.Maximized };
+        _workspaceRuntime = WorkspaceLayoutTransitions.EnterFullScreen(_workspaceRuntime);
+        if (_treemap is not null) { _treemapHost.Child = null; _fullScreenTreemapHost.Child = _treemap; }
+        _fullScreenTreemapOverlay.Visibility = Visibility.Visible;
+        _titleBar.Visibility = Visibility.Collapsed; _toolbar.Visibility = Visibility.Collapsed;
+        _scanOptions.Visibility = Visibility.Collapsed; _statusBar.Visibility = Visibility.Collapsed;
+        RenderWorkspaceMode(_workspaceRuntime.PanelMode); WindowState = WindowState.Maximized;
+        _workspaceLayoutBar.SetState(false, true);
+    }
+
+    void ExitWorkspaceFullScreen()
+    {
+        if (!_workspaceFullScreen) return;
+        _fullScreenTreemapOverlay.Visibility = Visibility.Collapsed;
+        if (_treemap is not null) { _fullScreenTreemapHost.Child = null; _treemapHost.Child = _treemap; }
+        _workspaceRuntime = WorkspaceLayoutTransitions.ExitFullScreen(_workspaceRuntime);
+        _workspaceFullScreen = false;
+        _titleBar.Visibility = Visibility.Visible; _toolbar.Visibility = Visibility.Visible;
+        _scanOptions.Visibility = Visibility.Visible; _statusBar.Visibility = Visibility.Visible;
+        _workspaceLayout = _workspaceLayout with { PanelMode = _workspaceRuntime.PanelMode };
+        RenderWorkspaceMode(_workspaceRuntime.PanelMode); WindowState = _windowStateBeforeFullScreen;
+        _workspaceLayoutBar.SetState(_detachedTreemapWindow is not null, false);
+    }
+
     async Task NotifyScanCompletionAsync(ScanCompletionSummary summary)
     {
         try
@@ -655,6 +814,24 @@ public partial class MainWindow : FluentWindow
 
     void OnWindowNavigationKeyDown(object sender, KeyEventArgs e)
     {
+        Key workspaceKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (workspaceKey == Key.F11)
+        {
+            OnWorkspaceFullScreenRequested(); e.Handled = true; return;
+        }
+        if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt))
+        {
+            WorkspacePanelMode? mode = workspaceKey switch
+            { Key.D1 or Key.NumPad1 => WorkspacePanelMode.Split,
+              Key.D2 or Key.NumPad2 => WorkspacePanelMode.TreeOnly,
+              Key.D3 or Key.NumPad3 => WorkspacePanelMode.TreemapOnly, _ => null };
+            if (mode is WorkspacePanelMode requested) { ApplyWorkspaceMode(requested); e.Handled = true; return; }
+            if (workspaceKey == Key.D) { OnWorkspaceDetachRequested(); e.Handled = true; return; }
+        }
+        if (_workspaceFullScreen && e.Key == Key.Escape)
+        {
+            ExitWorkspaceFullScreen(); e.Handled = true; return;
+        }
         if (_tourOverlay.Visibility == Visibility.Visible) return;
         if (_commandPaletteOverlay.Visibility == Visibility.Visible && e.Key == Key.Escape)
         {
