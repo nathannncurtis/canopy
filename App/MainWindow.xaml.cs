@@ -417,6 +417,7 @@ public partial class MainWindow : FluentWindow
         IReadOnlyList<TargetScanResult>? targets = null,
         IReadOnlyList<string>? limitations = null)
     {
+        Task<SizeNodeView[]> treeProjection = SizeTreeView.PrepareAsync(result);
         (ScanResultMetrics Metrics, ScanNavigation? Navigation) derived = await Task.Run(() =>
         {
             ScanResultMetrics metrics = ScanResultMetrics.Calculate(result);
@@ -425,6 +426,7 @@ public partial class MainWindow : FluentWindow
                 : new ScanNavigation(new ScanNavigationIndex(result));
             return (metrics, navigation);
         });
+        SizeNodeView[] projectedTree = await treeProjection;
         if (generation != _resultGeneration) return false;
 
         if (_result is not null && !ReferenceEquals(_result, result))
@@ -435,7 +437,7 @@ public partial class MainWindow : FluentWindow
         if (_shellActionsMenu is not null) _shellActionsMenu.ItemPath = null;
         _metrics = derived.Metrics;
         _navigation = derived.Navigation;
-        _treeView?.Populate(result);
+        _treeView?.PopulatePrepared(result, projectedTree);
         _searchView.SetResult(result);
         _navigationBar.SetNavigation(_navigation);
         _emptyItemsView.SetResult(result);
