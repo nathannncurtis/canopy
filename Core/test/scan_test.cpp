@@ -135,8 +135,21 @@ int wmain(int argc, wchar_t* argv[])
     }
     Smon_FreeResult(filtered_handle);
 
-    ScanHandle h = Smon_BeginScan(path, nullptr, nullptr);
-    if (!h) { wprintf(L"Smon_BeginScan returned null\n"); return 1; }
+    // Exercise the legacy entry point without making the contract depend on the
+    // hosted volume's USN-journal policy. Some CI images expose NTFS and elevation
+    // but deliberately leave the journal inactive (ERROR_JOURNAL_NOT_ACTIVE).
+    ScanHandle legacy_handle = Smon_BeginScan(path, nullptr, nullptr);
+    if (!legacy_handle) { wprintf(L"Smon_BeginScan returned null\n"); return 1; }
+    Smon_Cancel(legacy_handle);
+    Smon_Wait(legacy_handle, INFINITE);
+    Smon_FreeResult(legacy_handle);
+
+    SmonScanOptions deterministic{};
+    deterministic.struct_size = sizeof(deterministic);
+    deterministic.flags = SMON_OPTION_FORCE_DIRECTORY_SCAN;
+    deterministic.worker_threads = 1;
+    ScanHandle h = Smon_BeginScanEx(path, &deterministic, nullptr, nullptr);
+    if (!h) { wprintf(L"deterministic directory scan returned null\n"); return 1; }
 
     if (!Check(Smon_GetScannerKind(h) != SMON_SCANNER_UNKNOWN, L"scanner kind selected") ||
         !Check(Smon_SetPaused(h, TRUE) != FALSE, L"pause accepted") ||

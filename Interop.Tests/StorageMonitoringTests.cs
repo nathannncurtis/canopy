@@ -98,7 +98,10 @@ public sealed class StorageMonitoringTests
             lock (samples)
             {
                 samples.Add(sample);
-                if (samples.Count >= 3) received.TrySetResult();
+                if (samples.Any(item => item.Reason == FolderMonitorReason.Initial) &&
+                    samples.Any(item => item.Reason == FolderMonitorReason.FileSystemChange) &&
+                    samples.Any(item => item.Reason == FolderMonitorReason.PeriodicReconciliation))
+                    received.TrySetResult();
             }
         });
 
