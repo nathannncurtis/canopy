@@ -1,0 +1,50 @@
+name: Windows architecture matrix
+
+on:
+  pull_request:
+    paths:
+      - 'Core/**'
+      - 'App/**'
+      - 'Interop/**'
+      - 'packaging/scripts/Build-ArchitectureArtifacts.ps1'
+      - '.github/workflows/windows-architectures.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  native-and-distribution:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: windows-latest
+          - architecture: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Build, execute native corpus, and compare distribution sizes
+        shell: pwsh
+        run: |
+          ./packaging/scripts/Build-ArchitectureArtifacts.ps1 `
+            -Architecture '${{ matrix.architecture }}' `
+            -Version (Get-Content version.txt -Raw).Trim() `
+            -OutputDirectory ./artifacts `
+            -CompareSelfContained
+      - name: Validate managed contracts natively
+        shell: pwsh
+        run: dotnet test ./Interop.Tests/SizeMonitor.Interop.Tests.csproj -c Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: canopy-${{ matrix.architecture }}-architecture-artifacts
+          path: |
+            artifacts/*-framework-dependent.zip
+            artifacts/*-artifacts.json
+          if-no-files-found: error

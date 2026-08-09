@@ -1,8 +1,11 @@
 #include "cpu_features.h"
+#if defined(_M_IX86) || defined(_M_X64)
 #include <intrin.h>
+#endif
 
 bool CpuHasAvx2()
 {
+#if defined(_M_IX86) || defined(_M_X64)
     int registers[4] = {};
     __cpuid(registers, 0);
     if (registers[0] < 7) return false;
@@ -15,4 +18,7 @@ bool CpuHasAvx2()
 
     __cpuidex(registers, 7, 0);
     return (registers[1] & (1 << 5)) != 0;
+#else
+    return false;
+#endif
 }

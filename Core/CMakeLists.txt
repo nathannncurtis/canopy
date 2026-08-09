@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SizeMonitorCore CXX ASM_MASM)
+project(SizeMonitorCore CXX)
 
 option(SMON_ENABLE_AVX2_SUM "Enable measured AVX2 raw-assembly sum dispatch" OFF)
 
@@ -8,26 +8,36 @@ include(CTest)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# CMake's default MASM pipeline does not create the intermediate obj
-# subdirectory for source files in subfolders, causing ml64 A1000.
-# Drive assembly explicitly so the output lands in the binary root.
-set(SIMD_OBJ "${CMAKE_CURRENT_BINARY_DIR}/simd_sum_asm.obj")
-add_custom_command(
-    OUTPUT  "${SIMD_OBJ}"
-    COMMAND "${CMAKE_ASM_MASM_COMPILER}" /c /nologo
-            /Fo "${SIMD_OBJ}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/asm/simd_sum.asm"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/asm/simd_sum.asm"
-    COMMENT "Assembling simd_sum.asm"
-    VERBATIM
-)
-set_source_files_properties("${SIMD_OBJ}" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
-# Keep the .asm in the source list for IDE visibility; skip the auto-pipeline.
-set_source_files_properties(asm/simd_sum.asm PROPERTIES HEADER_FILE_ONLY TRUE)
+set(SMON_X64_ASM OFF)
+if(MSVC AND (CMAKE_GENERATOR_PLATFORM STREQUAL "x64" OR CMAKE_VS_PLATFORM_NAME STREQUAL "x64"))
+    set(SMON_X64_ASM ON)
+    enable_language(ASM_MASM)
+    # Drive x64 MASM explicitly so parallel targets share one generated object.
+    set(SIMD_OBJ "${CMAKE_CURRENT_BINARY_DIR}/simd_sum_asm.obj")
+    add_custom_command(
+        OUTPUT  "${SIMD_OBJ}"
+        COMMAND "${CMAKE_ASM_MASM_COMPILER}" /c /nologo
+                /Fo "${SIMD_OBJ}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/asm/simd_sum.asm"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/asm/simd_sum.asm"
+        COMMENT "Assembling measured x64 AVX2 sum"
+        VERBATIM
+    )
+    set_source_files_properties("${SIMD_OBJ}" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
+    set_source_files_properties(asm/simd_sum.asm PROPERTIES HEADER_FILE_ONLY TRUE)
+endif()
+if(SMON_ENABLE_AVX2_SUM AND NOT SMON_X64_ASM)
+    message(STATUS "SMON_ENABLE_AVX2_SUM ignored: x64 MASM is unavailable for ${CMAKE_GENERATOR_PLATFORM}")
+endif()
+message(STATUS "Canopy native architecture=${CMAKE_GENERATOR_PLATFORM}; x64 MASM=${SMON_X64_ASM}")
 
 # Own the generated MASM output in exactly one build target. Both consumers use
 # this target's object set, preventing parallel ml64 invocations on the same file.
-add_library(simd_sum_obj STATIC asm/simd_sum.cpp "${SIMD_OBJ}")
+add_library(simd_sum_obj STATIC asm/simd_sum.cpp)
+if(SMON_X64_ASM)
+    target_sources(simd_sum_obj PRIVATE "${SIMD_OBJ}" asm/simd_sum.asm)
+    target_compile_definitions(simd_sum_obj PRIVATE SMON_HAS_X64_ASM=1)
+endif()
 target_include_directories(simd_sum_obj PRIVATE asm src)
 
 add_library(Canopy.Core SHARED
@@ -39,8 +49,8 @@ add_library(Canopy.Core SHARED
     src/tree_compactor.cpp
     src/size_rollup.cpp
     src/cpu_features.cpp
+    src/architecture_dispatch.cpp
     src/scan_options.cpp
-    asm/simd_sum.asm
 )
 target_link_libraries(Canopy.Core PRIVATE simd_sum_obj)
 
@@ -76,7 +86,10 @@ add_custom_command(TARGET scan_test POST_BUILD
             "$<TARGET_FILE_DIR:scan_test>"
     COMMENT "Copying Canopy.Core.dll beside scan_test"
 )
-if(SMON_ENABLE_AVX2_SUM)
+if(SMON_X64_ASM)
+    target_compile_definitions(Canopy.Core PRIVATE SMON_HAS_X64_ASM=1)
+endif()
+if(SMON_ENABLE_AVX2_SUM AND SMON_X64_ASM)
     target_compile_definitions(Canopy.Core PRIVATE SMON_ENABLE_AVX2_SUM=1)
 endif()
 target_compile_definitions(scan_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -109,20 +122,35 @@ if(MSVC)
 endif()
 add_test(NAME node_pool_contract COMMAND node_pool_test)
 
-add_executable(simd_sum_test
-    test/simd_sum_test.cpp
-    src/cpu_features.cpp
-)
-target_link_libraries(simd_sum_test PRIVATE simd_sum_obj)
-target_include_directories(simd_sum_test PRIVATE asm src)
-target_compile_definitions(simd_sum_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-if(SMON_ENABLE_AVX2_SUM)
-    target_compile_definitions(simd_sum_test PRIVATE SMON_ENABLE_AVX2_SUM=1)
+if(SMON_X64_ASM)
+    add_executable(simd_sum_test test/simd_sum_test.cpp src/cpu_features.cpp)
+    target_link_libraries(simd_sum_test PRIVATE simd_sum_obj)
+    target_include_directories(simd_sum_test PRIVATE asm src)
+    target_compile_definitions(simd_sum_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX SMON_HAS_X64_ASM=1)
+    if(SMON_ENABLE_AVX2_SUM)
+        target_compile_definitions(simd_sum_test PRIVATE SMON_ENABLE_AVX2_SUM=1)
+    endif()
+    if(MSVC)
+        target_compile_options(simd_sum_test PRIVATE /W4 /WX /utf-8)
+    endif()
+    add_test(NAME avx2_asm_parity COMMAND simd_sum_test)
+endif()
+
+add_executable(architecture_sum_test test/architecture_sum_test.cpp
+    src/architecture_dispatch.cpp src/cpu_features.cpp)
+target_link_libraries(architecture_sum_test PRIVATE simd_sum_obj)
+target_include_directories(architecture_sum_test PRIVATE asm src)
+target_compile_definitions(architecture_sum_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+if(SMON_X64_ASM)
+    target_compile_definitions(architecture_sum_test PRIVATE SMON_HAS_X64_ASM=1)
+endif()
+if(SMON_ENABLE_AVX2_SUM AND SMON_X64_ASM)
+    target_compile_definitions(architecture_sum_test PRIVATE SMON_ENABLE_AVX2_SUM=1)
 endif()
 if(MSVC)
-    target_compile_options(simd_sum_test PRIVATE /W4 /WX /utf-8)
+    target_compile_options(architecture_sum_test PRIVATE /W4 /WX /utf-8)
 endif()
-add_test(NAME avx2_asm_parity COMMAND simd_sum_test)
+add_test(NAME architecture_sum_parity COMMAND architecture_sum_test)
 
 add_executable(scan_options_test test/scan_options_test.cpp src/scan_options.cpp)
 target_include_directories(scan_options_test PRIVATE src)

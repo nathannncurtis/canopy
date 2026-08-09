@@ -28,6 +28,7 @@ public sealed class InteropContractTests
         Assert.Equal(0x01ul, (ulong)CoreCapability.MftScanner);
         Assert.Equal(0x08ul, (ulong)CoreCapability.Avx2Assembly);
         Assert.Equal(0x10ul, (ulong)CoreCapability.ScanOptions);
+        Assert.Equal(0x80ul, (ulong)CoreCapability.Arm64Intrinsics);
         Assert.Equal(24, Marshal.SizeOf<SmonCapabilitiesNative>());
         Assert.Equal(8, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.Flags)).ToInt32());
         Assert.Equal(16, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.MaxNodes)).ToInt32());

@@ -3,7 +3,7 @@
 ![C++](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![C#](https://img.shields.io/badge/C%23-.NET%209-purple)
 ![License](https://img.shields.io/badge/license-GPL%203.0-blue)
-![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
+![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20ARM64-lightgrey)
 ![Version](https://img.shields.io/badge/version-1.0.0-orange)
 
 **A fast Windows disk space analyzer with a native WPF interface.**
@@ -16,7 +16,8 @@ Most disk analyzers either scan slowly or feel dated. Canopy uses the NTFS Maste
 
 - MFT enumeration via USN journal (`FSCTL_ENUM_USN_DATA`) for local NTFS volumes
 - `NtQueryDirectoryFile` with a thread pool for UNC paths (`\\server\share`)
-- AVX2 SIMD size accumulation with runtime CPU dispatch and scalar fallback
+- Architecture-dispatched accumulation: measured x64 AVX2 assembly when enabled,
+  ARM64 intrinsics on native ARM64, and a portable scalar fallback
 - Squarified treemap with drill-down navigation (left-click in, right-click out)
 - Directory tree view with proportional size bars
 - Fluent Design UI (WPF-UI, Mica backdrop, dark theme)
@@ -24,6 +25,7 @@ Most disk analyzers either scan slowly or feel dated. Canopy uses the NTFS Maste
 ## Requirements
 
 - Windows 10 or later
+- x64 or ARM64 processor; ARM64 packages run natively without x64 emulation
 - Administrator privileges for MFT scanning (falls back to directory scan without elevation)
 
 ## Usage
@@ -38,6 +40,7 @@ Enter a local path (`C:\`) or a UNC path (`\\server\share`) and click **Scan**.
 
 ```bat
 build.bat
+build.bat arm64
 ```
 
 Output lands in `dist\Canopy\`. The build is unsigned.
@@ -54,6 +57,12 @@ cmake --build Core\build --config Release
 dotnet publish App\SizeMonitor.App.csproj -c Release -r win-x64 --self-contained true -o dist\Canopy
 copy Core\build\bin\Release\Canopy.Core.dll dist\Canopy\
 ```
+
+For native ARM64, use `-A ARM64`, `-r win-arm64`, and the ARM64 Visual Studio C++
+tools. Lightweight framework-dependent ZIPs for both architectures can be created
+with `packaging/scripts/Build-ArchitectureArtifacts.ps1`; they require the matching
+.NET Desktop Runtime 9 and include explicit prerequisite guidance. Native ARM64 corpus
+execution is gated in CI because it cannot be verified through x64 emulation.
 
 ## License
 
