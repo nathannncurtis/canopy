@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Win32;
+using SizeMonitor.Helpers;
 using SizeMonitor.Interop;
 
 namespace SizeMonitor.Controls;
@@ -16,6 +17,8 @@ public partial class CleanupRulesView : UserControl
     CleanupPreview? _preview;
     CleanupFindingNavigator? _navigator;
     long _generation;
+    readonly CleanupQueueStore _queueStore = new(AppDataPaths.CleanupQueue);
+    CleanupQueueDocument _queue = new();
 
     public event Action<uint>? NodeActivated;
 
@@ -23,6 +26,65 @@ public partial class CleanupRulesView : UserControl
     {
         InitializeComponent();
         Unloaded += (_, _) => CancelPreview();
+        Loaded += OnLoaded;
+    }
+
+    async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _queue = await _queueStore.LoadAsync();
+            _confirmationThreshold.Text = _queue.TypedConfirmationThresholdBytes.ToString();
+            UpdateQueueStatus();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        { _status.Text = $"Cleanup queue could not be loaded: {ex.Message}"; }
+    }
+
+    async void OnQueueSelected(object sender, RoutedEventArgs e)
+    {
+        if (_preview is null || _items.SelectedItem is not CleanupPreviewRow row)
+        { _status.Text = "Select a cleanup recommendation before marking it for later."; return; }
+        CleanupPreviewItem? finding = _preview.Items.FirstOrDefault(item => item.NodeIndex == row.NodeIndex);
+        if (finding is null) return;
+        try
+        {
+            _queue = await _queueStore.AddOrUpdateAsync(new CleanupQueueEntry
+            {
+                Path = finding.Path, EstimatedBytes = finding.ReclaimableBytes, Risk = finding.Risk,
+                Note = _queueNote.Text, Tags = _queueTags.Text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
+            });
+            UpdateQueueStatus();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException or ArgumentException)
+        { _status.Text = $"Item was not queued: {ex.Message}"; }
+    }
+
+    async void OnSaveThreshold(object sender, RoutedEventArgs e)
+    {
+        if (!ulong.TryParse(_confirmationThreshold.Text, out ulong threshold))
+        { _status.Text = "Confirmation threshold must be a non-negative byte count."; return; }
+        try { _queue = await _queueStore.SetThresholdAsync(threshold); UpdateQueueStatus(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        { _status.Text = $"Threshold was not saved: {ex.Message}"; }
+    }
+
+    async void OnRemoveQueued(object sender, RoutedEventArgs e)
+    {
+        if (_items.SelectedItem is not CleanupPreviewRow row)
+        { _status.Text = "Select a cleanup recommendation before removing its mark."; return; }
+        try { _queue = await _queueStore.RemoveAsync(row.Path); UpdateQueueStatus(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        { _status.Text = $"Queue mark was not removed: {ex.Message}"; }
+    }
+
+    void UpdateQueueStatus()
+    {
+        CleanupSafetyAssessment plan = CleanupQueueStore.AssessPlan(_queue);
+        string confirmation = plan.RequiresTypedConfirmation
+            ? $" Any future destructive workflow must require the exact phrase: {plan.RequiredConfirmation}."
+            : string.Empty;
+        _status.Text = $"Cleanup queue: {_queue.Items.Count:N0} marked item(s). Planning only; nothing has been changed.{confirmation}";
     }
 
     public void SetResult(ScanResultManaged? result)
