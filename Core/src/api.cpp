@@ -47,7 +47,8 @@ BOOL WINAPI Smon_GetCapabilities(SmonCapabilities* capabilities)
                   SMON_CAP_PAUSE_RESUME |
                   SMON_CAP_SCAN_OPTIONS |
                   SMON_CAP_ERROR_INFO |
-                  SMON_CAP_SCAN_TELEMETRY;
+                  SMON_CAP_SCAN_TELEMETRY |
+                  SMON_CAP_ROUTE_INFO;
 #if defined(SMON_ENABLE_AVX2_SUM)
     if (CpuHasAvx2()) value.flags |= SMON_CAP_AVX2_ASM;
 #endif
@@ -274,6 +275,29 @@ BOOL WINAPI Smon_GetScanStatus(ScanHandle h, SmonScanStatus* status)
 DWORD WINAPI Smon_GetScannerKind(ScanHandle h)
 {
     return h ? static_cast<ScanContext*>(h)->scanner_kind : SMON_SCANNER_UNKNOWN;
+}
+
+BOOL WINAPI Smon_GetRouteInfo(ScanHandle h, SmonRouteInfo* info)
+{
+    if (!h || !info) { SetLastError(ERROR_INVALID_PARAMETER); return FALSE; }
+    const uint32_t caller_size = info->struct_size;
+    constexpr uint32_t minimum_size =
+        static_cast<uint32_t>(offsetof(SmonRouteInfo, fallback_reason) + sizeof(uint32_t));
+    if (caller_size < minimum_size) {
+        info->struct_size = sizeof(SmonRouteInfo);
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return FALSE;
+    }
+    auto* ctx = static_cast<ScanContext*>(h);
+    SmonRouteInfo value{};
+    value.struct_size = sizeof(value);
+    value.scanner_kind = ctx->scanner_kind;
+    value.filesystem_kind = ctx->filesystem_kind;
+    value.fallback_reason = ctx->fallback_reason;
+    value.cloud_backed = ctx->cloud_backed ? TRUE : FALSE;
+    std::memcpy(info, &value, caller_size < sizeof(value) ? caller_size : sizeof(value));
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
 }
 
 BOOL WINAPI Smon_GetResult(ScanHandle h, ScanResult* out)

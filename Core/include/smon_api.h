@@ -18,6 +18,7 @@
 #define SMON_FLAG_SYMLINK   0x02u
 #define SMON_FLAG_REPARSE   0x04u
 #define SMON_FLAG_STREAM    0x08u // size is logical stream bytes; included once in totals
+#define SMON_FLAG_CLOUD_PLACEHOLDER 0x10u
 
 #define SMON_SCANNER_UNKNOWN   0u
 #define SMON_SCANNER_MFT       1u
@@ -33,6 +34,23 @@
 #define SMON_CAP_ERROR_INFO        0x00000020ull
 #define SMON_CAP_SCAN_TELEMETRY    0x00000040ull
 #define SMON_CAP_ARM64_INTRINSICS  0x00000080ull
+#define SMON_CAP_ROUTE_INFO         0x00000100ull
+
+#define SMON_FILESYSTEM_UNKNOWN 0u
+#define SMON_FILESYSTEM_NTFS 1u
+#define SMON_FILESYSTEM_REFS 2u
+#define SMON_FILESYSTEM_FAT 3u
+#define SMON_FILESYSTEM_FAT32 4u
+#define SMON_FILESYSTEM_EXFAT 5u
+#define SMON_FILESYSTEM_OTHER 6u
+#define SMON_FILESYSTEM_NETWORK 7u
+#define SMON_ROUTE_DIRECT 0u
+#define SMON_ROUTE_EXPLICIT_DIRECTORY 1u
+#define SMON_ROUTE_CONSTRAINING_OPTIONS 2u
+#define SMON_ROUTE_NETWORK_PATH 3u
+#define SMON_ROUTE_UNSUPPORTED_FILESYSTEM 4u
+#define SMON_ROUTE_NOT_ELEVATED 5u
+#define SMON_ROUTE_CLOUD_PLACEHOLDER 6u
 
 #define SMON_SCAN_PHASE_DISCOVERY    1u
 #define SMON_SCAN_PHASE_METADATA     2u
@@ -113,6 +131,15 @@ typedef struct SmonScanStatus {
     uint64_t changed_items;
 } SmonScanStatus;
 
+typedef struct SmonRouteInfo {
+    uint32_t struct_size;
+    uint32_t scanner_kind;
+    uint32_t filesystem_kind;
+    uint32_t fallback_reason;
+    uint32_t cloud_backed;
+    uint32_t reserved;
+} SmonRouteInfo;
+
 // 32 bytes, naturally aligned -- matches C# [StructLayout(LayoutKind.Sequential, Pack=8)]
 typedef struct ScanNode {
     uint64_t size;         // on-disk bytes; dirs include all descendants
@@ -165,6 +192,7 @@ SMON_API DWORD WINAPI Smon_GetError(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_GetErrorInfo(ScanHandle handle, SmonErrorInfo* error_info);
 SMON_API BOOL WINAPI Smon_GetScanStatus(ScanHandle handle, SmonScanStatus* status);
 SMON_API DWORD WINAPI Smon_GetScannerKind(ScanHandle handle);
+SMON_API BOOL WINAPI Smon_GetRouteInfo(ScanHandle handle, SmonRouteInfo* route_info);
 SMON_API BOOL WINAPI Smon_GetResult(ScanHandle handle, ScanResult* out);
 SMON_API void WINAPI Smon_FreeResult(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_IsNtfsVolume(const wchar_t* path);

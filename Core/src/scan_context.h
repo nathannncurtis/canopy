@@ -26,6 +26,9 @@ struct ScanContext {
     DWORD              access_win32_error = ERROR_SUCCESS;
     std::wstring       error_path;
     DWORD              scanner_kind = 0;   // SMON_SCANNER_* selected by the router
+    DWORD              filesystem_kind = SMON_FILESYSTEM_UNKNOWN;
+    DWORD              fallback_reason = SMON_ROUTE_DIRECT;
+    bool               cloud_backed = false;
     bool               rolled_up   = false; // guard: RollupSizes must run exactly once
     std::wstring       scan_root;
     std::atomic<DWORD> phase = SMON_SCAN_PHASE_DISCOVERY;

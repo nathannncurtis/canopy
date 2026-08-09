@@ -48,6 +48,7 @@ add_library(Canopy.Core SHARED
     src/node_pool.cpp
     src/tree_compactor.cpp
     src/traversal_policy.cpp
+    src/filesystem_policy.cpp
     src/size_rollup.cpp
     src/cpu_features.cpp
     src/architecture_dispatch.cpp
@@ -172,3 +173,11 @@ if(MSVC)
     target_compile_options(traversal_policy_test PRIVATE /W4 /WX /utf-8)
 endif()
 add_test(NAME traversal_policy_contract COMMAND traversal_policy_test)
+
+add_executable(filesystem_policy_test test/filesystem_policy_test.cpp src/filesystem_policy.cpp)
+target_include_directories(filesystem_policy_test PRIVATE src)
+target_compile_definitions(filesystem_policy_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+if(MSVC)
+    target_compile_options(filesystem_policy_test PRIVATE /W4 /WX /utf-8)
+endif()
+add_test(NAME filesystem_policy_contract COMMAND filesystem_policy_test)
