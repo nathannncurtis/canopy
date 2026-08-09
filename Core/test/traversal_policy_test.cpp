@@ -45,6 +45,17 @@ static const ScanNode* FindFlag(const ScanResult& result, uint32_t flag)
     return nullptr;
 }
 
+static bool HasName(const ScanResult& result, std::wstring_view expected)
+{
+    for (uint32_t i = 0; i < result.node_count; ++i) {
+        const ScanNode& node = result.nodes[i];
+        const wchar_t* name = reinterpret_cast<const wchar_t*>(
+            reinterpret_cast<const BYTE*>(result.name_buf) + node.name_offset);
+        if (std::wstring_view(name, node.name_len) == expected) return true;
+    }
+    return false;
+}
+
 int wmain()
 {
     TraversalIdentityTracker tracker;
@@ -108,6 +119,21 @@ int wmain()
                    L"byte telemetry includes named-stream logical bytes")) return 1;
     }
 
+    std::wstring deep = L"\\\\?\\" + root;
+    while (deep.size() < 280) {
+        deep += L"\\segment-0123456789";
+        if (!CreateDirectoryW(deep.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return 1;
+    }
+    std::wstring deep_file = deep + L"\\deep.bin";
+    HANDLE deep_handle = CreateFileW(deep_file.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+    if (deep_handle == INVALID_HANDLE_VALUE) return 1;
+    CloseHandle(deep_handle);
+    {
+        OwnedScan long_paths;
+        if (!Check(Scan(root, 0, long_paths), L"long-path scan completes") ||
+            !Check(HasName(long_paths.result, L"deep.bin"), L"path beyond MAX_PATH is not truncated")) return 1;
+    }
+
     bool link_created = CreateSymbolicLinkW((root + L"\\data\\cycle").c_str(), root.c_str(),
         SYMBOLIC_LINK_FLAG_DIRECTORY | 0x2) != FALSE;
     if (link_created) {
@@ -122,6 +148,6 @@ int wmain()
                    L"reparse cycle does not recurse indefinitely")) return 1;
     }
 
-    std::filesystem::remove_all(root);
+    std::filesystem::remove_all(L"\\\\?\\" + root);
     return 0;
 }

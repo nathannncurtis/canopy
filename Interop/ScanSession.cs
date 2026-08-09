@@ -24,6 +24,23 @@ public sealed class ScanSession : IDisposable
         }
     }
 
+    public ScannerRouteInfo? RouteInfo
+    {
+        get
+        {
+            SafeScanHandle? handle = _handle;
+            if (handle is null || handle.IsInvalid) return null;
+            var native = new SmonRouteInfoNative
+            {
+                StructSize = checked((uint)Marshal.SizeOf<SmonRouteInfoNative>()),
+            };
+            return Native.Smon_GetRouteInfo(handle, ref native)
+                ? new(native.ScannerKind, native.FilesystemKind, native.FallbackReason,
+                    native.CloudBacked != 0)
+                : null;
+        }
+    }
+
     public static ScanSession Start(string path, IProgress<ScanProgress>? progress) => Start(path, progress, null);
 
     public static unsafe ScanSession Start(string path, IProgress<ScanProgress>? progress, ScanOptions? options) =>

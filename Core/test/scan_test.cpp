@@ -142,6 +142,19 @@ int wmain(int argc, wchar_t* argv[])
         Smon_FreeResult(filtered_handle);
         return 1;
     }
+    SmonRouteInfo short_route{};
+    short_route.struct_size = sizeof(uint32_t);
+    if (!Check(!Smon_GetRouteInfo(filtered_handle, &short_route) &&
+               GetLastError() == ERROR_INSUFFICIENT_BUFFER &&
+               short_route.struct_size == sizeof(SmonRouteInfo),
+               L"route info reports required additive struct size")) return 1;
+    SmonRouteInfo route{};
+    route.struct_size = sizeof(route);
+    if (!Check(Smon_GetRouteInfo(filtered_handle, &route) != FALSE,
+               L"route info is available") ||
+        !Check(route.scanner_kind == SMON_SCANNER_DIRECTORY &&
+               route.fallback_reason == SMON_ROUTE_CONSTRAINING_OPTIONS,
+               L"route info explains directory fallback")) return 1;
     ScanResult filtered_result{};
     if (!Check(Smon_GetResult(filtered_handle, &filtered_result) != FALSE,
                L"filtered result returned")) {

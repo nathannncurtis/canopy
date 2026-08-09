@@ -25,16 +25,19 @@ public sealed class InteropContractTests
         Assert.Equal(0x02u, ScanNodeFlags.Symlink);
         Assert.Equal(0x04u, ScanNodeFlags.Reparse);
         Assert.Equal(0x08u, ScanNodeFlags.Stream);
+        Assert.Equal(0x10u, ScanNodeFlags.CloudPlaceholder);
         Assert.Equal(1u, CoreCapabilities.ExpectedAbiVersion);
         Assert.Equal(0x01ul, (ulong)CoreCapability.MftScanner);
         Assert.Equal(0x08ul, (ulong)CoreCapability.Avx2Assembly);
         Assert.Equal(0x10ul, (ulong)CoreCapability.ScanOptions);
         Assert.Equal(0x80ul, (ulong)CoreCapability.Arm64Intrinsics);
+        Assert.Equal(0x100ul, (ulong)CoreCapability.RouteInfo);
         Assert.Equal(24, Marshal.SizeOf<SmonCapabilitiesNative>());
         Assert.Equal(8, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.Flags)).ToInt32());
         Assert.Equal(16, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.MaxNodes)).ToInt32());
         Assert.Equal(20, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.MaxNameBytes)).ToInt32());
         Assert.Equal(IntPtr.Size == 8 ? 56 : 48, Marshal.SizeOf<SmonScanOptionsNative>());
+        Assert.Equal(24, Marshal.SizeOf<SmonRouteInfoNative>());
     }
 
     [Theory]

@@ -1,6 +1,7 @@
 #include "dir_scanner.h"
 #include "scan_context.h"
 #include "traversal_policy.h"
+#include "filesystem_policy.h"
 #include <queue>
 #include <string>
 #include <vector>
@@ -341,6 +342,7 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
             if (!is_dot && !is_dotdot) {
                 bool is_dir    = (fdi->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
                 bool is_reparse = (fdi->FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+                bool is_cloud_placeholder = IsCloudPlaceholderAttributes(fdi->FileAttributes);
                 uint64_t entry_size = is_dir ? 0 :
                     static_cast<uint64_t>(fdi->AllocationSize.QuadPart);
                 uint64_t logical_size = is_dir ? 0 :
@@ -365,7 +367,8 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                 if (child_path.back() != L'\\') child_path += L'\\';
                 child_path.append(fdi->FileName, name_chars);
                 bool enqueue_child = false;
-                if (is_dir && (!is_reparse || ctx->options.follow_reparse_points) &&
+                if (is_dir && !is_cloud_placeholder &&
+                    (!is_reparse || ctx->options.follow_reparse_points) &&
                     child_depth < ctx->options.max_depth) {
                     enqueue_child = true;
                 }
@@ -404,6 +407,7 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                         node->flags        = 0;
                         if (is_dir)    node->flags |= SMON_FLAG_DIRECTORY;
                         if (is_reparse) node->flags |= SMON_FLAG_REPARSE;
+                        if (is_cloud_placeholder) node->flags |= SMON_FLAG_CLOUD_PLACEHOLDER;
                         node->size         = entry_size;
                         node->parent       = item.parent_idx;
                         node->first_child  = UINT32_MAX;

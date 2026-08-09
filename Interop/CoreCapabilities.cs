@@ -15,6 +15,27 @@ public enum CoreCapability : ulong
     ErrorInfo = 0x00000020,
     ScanTelemetry = 0x00000040,
     Arm64Intrinsics = 0x00000080,
+    RouteInfo = 0x00000100,
+}
+
+public enum FilesystemKind : uint { Unknown, Ntfs, Refs, Fat, Fat32, Exfat, Other, Network }
+public enum ScannerFallbackReason : uint
+{
+    None, ExplicitDirectory, ConstrainingOptions, NetworkPath, UnsupportedFilesystem,
+    NotElevated, CloudPlaceholder,
+}
+public sealed record ScannerRouteInfo(ScannerKind Scanner, FilesystemKind Filesystem,
+    ScannerFallbackReason FallbackReason, bool CloudBacked);
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct SmonRouteInfoNative
+{
+    public uint StructSize;
+    public ScannerKind ScannerKind;
+    public FilesystemKind FilesystemKind;
+    public ScannerFallbackReason FallbackReason;
+    public uint CloudBacked;
+    public uint Reserved;
 }
 
 [StructLayout(LayoutKind.Sequential)]
