@@ -2,7 +2,9 @@
 #include "cpu_features.h"
 #include "../include/smon_api.h"
 #include "../asm/simd_sum.h"
+#if defined(SMON_ENABLE_AVX2_SUM)
 static const bool s_have_avx2 = CpuHasAvx2();
+#endif
 
 void RollupSizes(ScanResult* result)
 {
@@ -41,6 +43,7 @@ void RollupSizes(ScanResult* result)
                 ++root_count;
         }
 
+#if defined(SMON_ENABLE_AVX2_SUM)
         if (s_have_avx2 && root_count > 1) {
             // Gather root sizes into a contiguous array for the SIMD sum.
             uint64_t* scratch = new uint64_t[root_count];
@@ -51,7 +54,9 @@ void RollupSizes(ScanResult* result)
             }
             total_bytes = SmonSumU64_AVX2(scratch, root_count);
             delete[] scratch;
-        } else {
+        } else
+#endif
+        {
             // Scalar path: single root (common case) or no AVX2.
             for (uint32_t i = 0; i < result->node_count; ++i) {
                 if (result->nodes[i].parent == UINT32_MAX)

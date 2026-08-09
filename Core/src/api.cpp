@@ -48,7 +48,9 @@ BOOL WINAPI Smon_GetCapabilities(SmonCapabilities* capabilities)
                   SMON_CAP_SCAN_OPTIONS |
                   SMON_CAP_ERROR_INFO |
                   SMON_CAP_SCAN_TELEMETRY;
+#if defined(SMON_ENABLE_AVX2_SUM)
     if (CpuHasAvx2()) value.flags |= SMON_CAP_AVX2_ASM;
+#endif
     value.max_nodes = NodePool::MaxNodes;
     value.max_name_bytes = NodePool::MaxNameBytes;
     std::memcpy(capabilities, &value, caller_size < sizeof(value) ? caller_size : sizeof(value));
