@@ -28,36 +28,85 @@ public sealed class MultiScanSession : IAsyncDisposable
         _maxConcurrency = maxConcurrency;
     }
 
-    // Compatibility surface: returns every success while failures remain available
-    // through ScanOutcomesAsync for callers that need per-target diagnostics.
+    // Compatibility surface: returns results only when every target succeeds.
+    // Call ScanOutcomesAsync to intentionally consume partial results and diagnostics.
     public async Task<IReadOnlyList<TargetScanResult>> ScanAsync(IEnumerable<string> paths,
         IProgress<TargetScanProgress>? progress = null, CancellationToken cancellationToken = default,
         ScanOptions? options = null)
     {
         IReadOnlyList<TargetScanOutcome> outcomes =
             await ScanOutcomesAsync(paths, progress, cancellationToken, options).ConfigureAwait(false);
-        return outcomes.Where(x => x.Succeeded)
-            .Select(x => new TargetScanResult(x.Path, x.Scanner, x.Result!)).ToArray();
+        return MaterializeSuccessfulOutcomes(outcomes);
+    }
+
+    internal static IReadOnlyList<TargetScanResult> MaterializeSuccessfulOutcomes(
+        IReadOnlyList<TargetScanOutcome> outcomes)
+    {
+        Exception[] failures = outcomes.Where(item => !item.Succeeded)
+            .Select(item => new InvalidOperationException($"Scan target '{item.Path}' failed.", item.Error))
+            .ToArray();
+        if (failures.Length != 0)
+            throw new AggregateException(
+                "One or more scan targets failed; partial results were not presented as complete.", failures);
+        return outcomes.Select(item => new TargetScanResult(item.Path, item.Scanner, item.Result!)).ToArray();
     }
 
     public Task<IReadOnlyList<TargetScanOutcome>> ScanOutcomesAsync(IEnumerable<string> paths,
         IProgress<TargetScanProgress>? progress = null, CancellationToken cancellationToken = default,
         ScanOptions? options = null)
     {
+        var completion = new TaskCompletionSource<IReadOnlyList<TargetScanOutcome>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationTokenSource runCancellation;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_runCancellation is not null)
                 return Task.FromException<IReadOnlyList<TargetScanOutcome>>(
                     new InvalidOperationException("This coordinator already has an active scan."));
-            Task<IReadOnlyList<TargetScanOutcome>> run = RunAsync(paths, progress, cancellationToken, options);
-            _activeRun = run;
-            return run;
+            _paused = false;
+            runCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _runCancellation = runCancellation;
+            _activeRun = completion.Task;
+        }
+        _ = CompletePublishedRunAsync(paths, progress, options, runCancellation, completion);
+        return completion.Task;
+    }
+
+    async Task CompletePublishedRunAsync(IEnumerable<string> paths,
+        IProgress<TargetScanProgress>? progress, ScanOptions? options,
+        CancellationTokenSource runCancellation,
+        TaskCompletionSource<IReadOnlyList<TargetScanOutcome>> completion)
+    {
+        await Task.Yield();
+        try
+        {
+            completion.TrySetResult(await RunAdmittedAsync(
+                paths, progress, options, runCancellation).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException ex) when (runCancellation.IsCancellationRequested)
+        {
+            completion.TrySetCanceled(ex.CancellationToken);
+        }
+        catch (Exception ex) { completion.TrySetException(ex); }
+        finally
+        {
+            lock (_gate)
+            {
+                if (ReferenceEquals(_runCancellation, runCancellation))
+                {
+                    _paused = false;
+                    _runCancellation = null;
+                    _activeRun = null;
+                }
+            }
+            runCancellation.Dispose();
         }
     }
 
-    async Task<IReadOnlyList<TargetScanOutcome>> RunAsync(IEnumerable<string> paths,
-        IProgress<TargetScanProgress>? progress, CancellationToken cancellationToken, ScanOptions? options)
+    async Task<IReadOnlyList<TargetScanOutcome>> RunAdmittedAsync(IEnumerable<string> paths,
+        IProgress<TargetScanProgress>? progress, ScanOptions? options,
+        CancellationTokenSource runCancellation)
     {
         ScanOptions? scanOptions = options is null ? null : options with
         {
@@ -68,15 +117,6 @@ public sealed class MultiScanSession : IAsyncDisposable
         string[] targets = paths.Select(NormalizeTarget).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (targets.Length == 0) throw new ArgumentException("At least one path is required.", nameof(paths));
 
-        CancellationTokenSource runCancellation;
-        lock (_gate)
-        {
-            if (_runCancellation is not null) throw new InvalidOperationException("This coordinator already has an active scan.");
-            _paused = false;
-            _runCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            runCancellation = _runCancellation;
-        }
-
         using var concurrency = new SemaphoreSlim(_maxConcurrency);
         int completed = 0;
         Task<TargetScanOutcome>[] tasks = targets.Select(async path =>
@@ -86,17 +126,21 @@ public sealed class MultiScanSession : IAsyncDisposable
             try
             {
                 var itemProgress = progress is null ? null : new CallbackProgress<ScanProgress>(value =>
-                    progress.Report(new(path, value, Volatile.Read(ref completed), targets.Length)));
+                    ReportSafely(progress,
+                        new(path, value, Volatile.Read(ref completed), targets.Length)));
                 session = await Task.Run(() => ScanSession.Start(path, itemProgress, scanOptions),
                     runCancellation.Token).ConfigureAwait(false);
+                bool pause;
                 lock (_gate)
                 {
                     _active.Add(session);
-                    if (_paused) session.Pause();
+                    pause = _paused;
                 }
+                if (pause) session.Pause();
                 ScanResultManaged result = await session.WaitAsync(runCancellation.Token).ConfigureAwait(false);
                 int done = Interlocked.Increment(ref completed);
-                progress?.Report(new(path, new(result.DirCount, result.FileCount, result.TotalBytes), done, targets.Length));
+                ReportSafely(progress,
+                    new(path, new(result.DirCount, result.FileCount, result.TotalBytes), done, targets.Length));
                 return new TargetScanOutcome(path, session.Scanner, result, null);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !runCancellation.IsCancellationRequested)
@@ -115,17 +159,7 @@ public sealed class MultiScanSession : IAsyncDisposable
             }
         }).ToArray();
 
-        try { return await Task.WhenAll(tasks).ConfigureAwait(false); }
-        finally
-        {
-            lock (_gate)
-            {
-                _paused = false;
-                _runCancellation?.Dispose();
-                _runCancellation = null;
-                _activeRun = null;
-            }
-        }
+        return await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
     internal static string NormalizeTarget(string path)
@@ -137,9 +171,53 @@ public sealed class MultiScanSession : IAsyncDisposable
         return Path.TrimEndingDirectorySeparator(Path.GetFullPath(trimmed));
     }
 
-    public void Pause() { lock (_gate) { _paused = true; foreach (ScanSession scan in _active) scan.Pause(); } }
-    public void Resume() { lock (_gate) { _paused = false; foreach (ScanSession scan in _active) scan.Resume(); } }
-    public void Cancel() { lock (_gate) { _runCancellation?.Cancel(); foreach (ScanSession scan in _active) scan.Cancel(); } }
+    public void Pause()
+    {
+        ScanSession[] active;
+        lock (_gate) { _paused = true; active = _active.ToArray(); }
+        foreach (ScanSession scan in active) InvokeSnapshotControl(scan.Pause);
+    }
+
+    public void Resume()
+    {
+        ScanSession[] active;
+        lock (_gate) { _paused = false; active = _active.ToArray(); }
+        foreach (ScanSession scan in active) InvokeSnapshotControl(scan.Resume);
+    }
+
+    public void Cancel()
+    {
+        CancellationTokenSource? cancellation;
+        ScanSession[] active;
+        lock (_gate) { cancellation = _runCancellation; active = _active.ToArray(); }
+        if (cancellation is not null) InvokeSnapshotControl(cancellation.Cancel);
+        foreach (ScanSession scan in active) InvokeSnapshotControl(scan.Cancel);
+    }
+
+    internal static void InvokeSnapshotControl(Action control)
+    {
+        try { control(); }
+        // A run may finish and dispose an object after it was snapshotted under _gate.
+        catch (ObjectDisposedException) { }
+    }
+
+    internal CancellationToken ActiveRunCancellationToken
+    {
+        get { lock (_gate) return _runCancellation?.Token ?? default; }
+    }
+
+    internal static void ReportSafely<T>(IProgress<T>? progress, T value)
+    {
+        if (progress is null) return;
+        try { progress.Report(value); }
+        catch { }
+    }
+
+    static void InvokeSafely<T>(Action<T> callback, T value)
+    {
+        try { callback(value); }
+        catch { }
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -150,13 +228,12 @@ public sealed class MultiScanSession : IAsyncDisposable
             try { await run.ConfigureAwait(false); } catch (Exception) { }
     }
 
-    sealed class CallbackProgress<T>(Action<T> callback) : IProgress<T>
+    internal sealed class CallbackProgress<T>(Action<T> callback) : IProgress<T>
     {
         public void Report(T value)
         {
             // Never unwind a managed exception through the reverse-P/Invoke frame.
-            try { callback(value); }
-            catch { }
+            InvokeSafely(callback, value);
         }
     }
 }

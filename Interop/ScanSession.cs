@@ -72,7 +72,9 @@ public sealed class ScanSession : IDisposable
         SmonProgressCallback? callback = progress is null ? null :
             (dirs, files, bytes, _) =>
             {
-                session._progress?.Offer(new ScanProgress(dirs, files, bytes));
+                // No managed exception may unwind through a reverse-P/Invoke frame.
+                try { session._progress?.Offer(new ScanProgress(dirs, files, bytes)); }
+                catch { }
             };
         session._callbackDelegate = callback;
 
@@ -106,6 +108,8 @@ public sealed class ScanSession : IDisposable
             {
                 while (true)
                 {
+                    // Snapshot under the state gate, then block outside it. SafeHandle
+                    // marshalling pins the native handle for the duration of this call.
                     SafeScanHandle handle = GetHandle(throwIfDisposed: true)!;
                     bool completed = Native.Smon_Wait(handle, 50);
                     ReportNativeStatus(handle);
@@ -230,6 +234,7 @@ public sealed class ScanSession : IDisposable
         }
         if (handle is not null && !handle.IsClosed)
         {
+            // Cancellation/join can block on filesystem I/O; never hold _gate here.
             Native.Smon_Cancel(handle);
             Native.Smon_Wait(handle, uint.MaxValue);
             lock (_gate)

@@ -98,6 +98,132 @@ public sealed class InteropContractTests
     }
 
     [Fact]
+    public void MultiScanCompatibilitySurfaceThrowsForEveryFailedTarget()
+    {
+        TargetScanOutcome[] outcomes =
+        [
+            new(@"C:\denied", ScannerKind.Directory, null, new UnauthorizedAccessException("denied")),
+            new(@"D:\missing", ScannerKind.Unknown, null, new DirectoryNotFoundException("missing")),
+        ];
+
+        AggregateException error = Assert.Throws<AggregateException>(() =>
+            MultiScanSession.MaterializeSuccessfulOutcomes(outcomes));
+
+        Assert.Equal(2, error.InnerExceptions.Count);
+        Assert.Contains(error.InnerExceptions, item => item.Message.Contains(@"C:\denied", StringComparison.Ordinal));
+        Assert.Contains(error.InnerExceptions, item => item.Message.Contains(@"D:\missing", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task MultiScanPublishesOnlyAnAdmittedRunAndDrainsIt()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        IEnumerable<string> BlockingTargets()
+        {
+            entered.Set();
+            release.Wait(TestContext.Current.CancellationToken);
+            yield break;
+        }
+
+        await using var session = new MultiScanSession();
+        Task<IReadOnlyList<TargetScanOutcome>> admitted = session.ScanOutcomesAsync(BlockingTargets(),
+            cancellationToken: TestContext.Current.CancellationToken);
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+            Task<IReadOnlyList<TargetScanOutcome>> rejected = session.ScanOutcomesAsync([], cancellationToken:
+                TestContext.Current.CancellationToken);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => rejected);
+        }
+        finally { release.Set(); }
+        await Assert.ThrowsAsync<ArgumentException>(() => admitted);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => session.ScanOutcomesAsync([], cancellationToken:
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void NativeCallbackProgressContainsReporterExceptions()
+    {
+        var progress = new MultiScanSession.CallbackProgress<int>(
+            _ => throw new InvalidOperationException("reporter failure"));
+
+        Exception? escaped = Record.Exception(() => progress.Report(1));
+
+        Assert.Null(escaped);
+    }
+
+    [Fact]
+    public void TerminalMultiScanProgressContainsReporterExceptions()
+    {
+        int deliveries = 0;
+        var progress = new ThrowingProgress<TargetScanProgress>(() => deliveries++);
+        var terminal = new TargetScanProgress(@"C:\", new ScanProgress(1, 2, 3), 1, 1);
+
+        Exception? escaped = Record.Exception(() => MultiScanSession.ReportSafely(progress, terminal));
+
+        Assert.Null(escaped);
+        Assert.Equal(1, deliveries);
+    }
+
+    [Fact]
+    public async Task MultiScanCancelAllowsSynchronousCallbackReentry()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        IEnumerable<string> BlockingTargets()
+        {
+            entered.Set();
+            release.Wait(TestContext.Current.CancellationToken);
+            yield return ".";
+        }
+
+        await using var session = new MultiScanSession();
+        Task<IReadOnlyList<TargetScanOutcome>> run = session.ScanOutcomesAsync(BlockingTargets(),
+            cancellationToken: TestContext.Current.CancellationToken);
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+            bool callbackReentered = false;
+            using CancellationTokenRegistration registration = session.ActiveRunCancellationToken.Register(() =>
+            {
+                session.Pause();
+                callbackReentered = true;
+            });
+
+            Task cancel = Task.Run(session.Cancel, TestContext.Current.CancellationToken);
+            await cancel.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.True(callbackReentered);
+        }
+        finally { release.Set(); }
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
+    public void MultiScanControlsIgnoreOnlyDisposedSnapshots()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Dispose();
+        using var scan = new ScanSession();
+        scan.Dispose();
+
+        Exception? completionRace = Record.Exception(() =>
+        {
+            MultiScanSession.InvokeSnapshotControl(cancellation.Cancel);
+            MultiScanSession.InvokeSnapshotControl(scan.Pause);
+            MultiScanSession.InvokeSnapshotControl(scan.Resume);
+            MultiScanSession.InvokeSnapshotControl(scan.Cancel);
+        });
+        Assert.Null(completionRace);
+
+        var nativeFailure = new InvalidOperationException("native control failure");
+        InvalidOperationException escaped = Assert.Throws<InvalidOperationException>(() =>
+            MultiScanSession.InvokeSnapshotControl(() => throw nativeFailure));
+        Assert.Same(nativeFailure, escaped);
+    }
+
+    [Fact]
     public void ScanExceptionPreservesNativeError()
     {
         var exception = new ScanException(5);
@@ -278,5 +404,14 @@ public sealed class InteropContractTests
         Assert.NotEmpty(info.FileSystem);
         Assert.True(info.ClusterSize > 0);
         Assert.Equal(info.TotalBytes, info.UsedBytes + info.FreeBytes);
+    }
+
+    sealed class ThrowingProgress<T>(Action beforeThrow) : IProgress<T>
+    {
+        public void Report(T value)
+        {
+            beforeThrow();
+            throw new InvalidOperationException("reporter failure");
+        }
     }
 }
