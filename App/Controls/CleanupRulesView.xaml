@@ -8,6 +8,7 @@
             <RowDefinition Height="120" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -62,13 +63,30 @@
                        AutomationProperties.Name="Cleanup preview status" />
         </Grid>
 
-        <DataGrid Grid.Row="4" x:Name="_items" AutoGenerateColumns="False"
+        <Grid Grid.Row="4" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Button x:Name="_previousFinding" Content="Previous" Click="OnPreviousFinding"
+                    IsEnabled="False" Padding="12,4" Margin="0,0,8,0" />
+            <Button x:Name="_nextLargestFinding" Grid.Column="1" Content="Reveal next largest"
+                    Click="OnNextLargestFinding" IsEnabled="False" Padding="12,4" Margin="0,0,12,0" />
+            <TextBlock x:Name="_explanation" Grid.Column="2" TextWrapping="Wrap"
+                       Text="Select a recommendation to see why it matched and what to review."
+                       AutomationProperties.LiveSetting="Polite"
+                       AutomationProperties.Name="Cleanup recommendation explanation" />
+        </Grid>
+
+        <DataGrid Grid.Row="5" x:Name="_items" AutoGenerateColumns="False"
                   IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow"
                   CanUserAddRows="False" CanUserDeleteRows="False"
                   EnableRowVirtualization="True" EnableColumnVirtualization="True"
                   VirtualizingPanel.IsVirtualizing="True"
                   VirtualizingPanel.VirtualizationMode="Recycling"
                   ScrollViewer.CanContentScroll="True"
+                  SelectionChanged="OnItemSelectionChanged"
                   MouseDoubleClick="OnItemDoubleClick"
                   ToolTip="Double-click a preview match to activate its scan node"
                   AutomationProperties.Name="Cleanup preview matches">
