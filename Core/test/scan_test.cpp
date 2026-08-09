@@ -41,6 +41,8 @@ int wmain(int argc, wchar_t* argv[])
                L"scan options capability") ||
         !Check((capabilities.flags & SMON_CAP_ERROR_INFO) != 0,
                L"structured error capability") ||
+        !Check((capabilities.flags & SMON_CAP_SCAN_TELEMETRY) != 0,
+               L"scan telemetry capability") ||
         !Check(capabilities.max_nodes > 0 && capabilities.max_name_bytes > 0,
                L"arena capabilities"))
         return 1;
@@ -50,6 +52,7 @@ int wmain(int argc, wchar_t* argv[])
         !Check(Smon_Wait(nullptr, 0) == FALSE, L"wait rejects null") ||
         !Check(Smon_GetError(nullptr) == ERROR_INVALID_HANDLE, L"null error code") ||
         !Check(Smon_GetErrorInfo(nullptr, nullptr) == FALSE, L"null error info rejected") ||
+        !Check(Smon_GetScanStatus(nullptr, nullptr) == FALSE, L"null scan status rejected") ||
         !Check(Smon_GetScannerKind(nullptr) == SMON_SCANNER_UNKNOWN, L"null scanner kind"))
         return 1;
 
@@ -145,10 +148,31 @@ int wmain(int argc, wchar_t* argv[])
         Smon_FreeResult(h);
         return 1;
     }
+    SmonScanStatus status{};
+    status.struct_size = sizeof(status);
+    if (!Check(Smon_GetScanStatus(h, &status) != FALSE, L"scan status returned") ||
+        !Check(status.struct_size == sizeof(status), L"scan status size returned") ||
+        !Check(status.phase >= SMON_SCAN_PHASE_DISCOVERY &&
+               status.phase <= SMON_SCAN_PHASE_FINALIZATION,
+               L"pre-result scan phase is valid") ||
+        !Check(status.terminal == FALSE, L"pre-result status is not terminal")) {
+        Smon_FreeResult(h);
+        return 1;
+    }
 
     ScanResult r{};
     if (!Smon_GetResult(h, &r)) {
         wprintf(L"Smon_GetResult failed: %lu\n", Smon_GetError(h));
+        Smon_FreeResult(h);
+        return 1;
+    }
+    status = {};
+    status.struct_size = sizeof(status);
+    if (!Check(Smon_GetScanStatus(h, &status) != FALSE, L"terminal scan status returned") ||
+        !Check(status.phase == SMON_SCAN_PHASE_COMPLETE && status.terminal != FALSE,
+               L"terminal phase delivered") ||
+        !Check(status.dirs_visited + status.files_visited > 0,
+               L"telemetry contains visited items")) {
         Smon_FreeResult(h);
         return 1;
     }

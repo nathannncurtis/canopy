@@ -46,7 +46,8 @@ BOOL WINAPI Smon_GetCapabilities(SmonCapabilities* capabilities)
                   SMON_CAP_DIRECTORY_SCANNER |
                   SMON_CAP_PAUSE_RESUME |
                   SMON_CAP_SCAN_OPTIONS |
-                  SMON_CAP_ERROR_INFO;
+                  SMON_CAP_ERROR_INFO |
+                  SMON_CAP_SCAN_TELEMETRY;
     if (CpuHasAvx2()) value.flags |= SMON_CAP_AVX2_ASM;
     value.max_nodes = NodePool::MaxNodes;
     value.max_name_bytes = NodePool::MaxNameBytes;
@@ -212,6 +213,34 @@ BOOL WINAPI Smon_GetErrorInfo(ScanHandle h, SmonErrorInfo* info)
     return TRUE;
 }
 
+BOOL WINAPI Smon_GetScanStatus(ScanHandle h, SmonScanStatus* status)
+{
+    if (!h || !status) { SetLastError(ERROR_INVALID_PARAMETER); return FALSE; }
+    const uint32_t caller_size = status->struct_size;
+    constexpr uint32_t minimum_size = static_cast<uint32_t>(offsetof(SmonScanStatus, bytes_seen) + sizeof(uint64_t));
+    if (caller_size < minimum_size) {
+        status->struct_size = sizeof(SmonScanStatus);
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return FALSE;
+    }
+    auto* ctx = static_cast<ScanContext*>(h);
+    SmonScanStatus value{};
+    value.struct_size = sizeof(value);
+    value.phase = ctx->phase.load(std::memory_order_acquire);
+    value.terminal = value.phase == SMON_SCAN_PHASE_COMPLETE ? TRUE : FALSE;
+    value.dirs_visited = ctx->dirs_visited.load(std::memory_order_relaxed);
+    value.files_visited = ctx->files_visited.load(std::memory_order_relaxed);
+    value.bytes_seen = ctx->bytes_seen.load(std::memory_order_relaxed);
+    value.skipped_directories = ctx->skipped_directories.load(std::memory_order_relaxed);
+    value.skipped_files = ctx->skipped_files.load(std::memory_order_relaxed);
+    value.permission_skips = ctx->permission_skips.load(std::memory_order_relaxed);
+    value.error_skips = ctx->error_skips.load(std::memory_order_relaxed);
+    value.changed_items = ctx->changed_items.load(std::memory_order_relaxed);
+    std::memcpy(status, &value, caller_size < sizeof(value) ? caller_size : sizeof(value));
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
+}
+
 DWORD WINAPI Smon_GetScannerKind(ScanHandle h)
 {
     return h ? static_cast<ScanContext*>(h)->scanner_kind : SMON_SCANNER_UNKNOWN;
@@ -221,12 +250,16 @@ BOOL WINAPI Smon_GetResult(ScanHandle h, ScanResult* out)
 {
     if (!h || !out) return FALSE;
     auto* ctx = static_cast<ScanContext*>(h);
+    FinishMutationTracking(ctx);
+    ctx->phase.store(SMON_SCAN_PHASE_AGGREGATION, std::memory_order_release);
     ctx->pool.Finalize(&ctx->result);
     if (!ctx->rolled_up) {
         RollupSizes(&ctx->result);
         ctx->rolled_up = true;
     }
+    ctx->phase.store(SMON_SCAN_PHASE_FINALIZATION, std::memory_order_release);
     *out = ctx->result;
+    ctx->phase.store(SMON_SCAN_PHASE_COMPLETE, std::memory_order_release);
     return ctx->error.load(std::memory_order_acquire) == 0;
 }
 

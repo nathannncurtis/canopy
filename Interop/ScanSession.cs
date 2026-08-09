@@ -1,14 +1,15 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace SizeMonitor.Interop;
 
 public sealed class ScanSession : IDisposable
 {
-    IntPtr _handle;
+    SafeScanHandle? _handle;
     SmonProgressCallback? _callbackDelegate;
     bool _disposed;
     readonly object _gate = new();
-    int _nativeCalls;
+    ProgressCoalescer? _progress;
     ScanSessionState _state = ScanSessionState.Created;
     ScanErrorInfo? _lastErrorInfo;
 
@@ -18,29 +19,35 @@ public sealed class ScanSession : IDisposable
     {
         get
         {
-            if (!TryAcquireHandle(throwIfDisposed: false, out IntPtr handle)) return ScannerKind.Unknown;
-            try { return (ScannerKind)Native.Smon_GetScannerKind(handle); }
-            finally { ReleaseHandle(); }
+            SafeScanHandle? handle = GetHandle(throwIfDisposed: false);
+            return handle is null ? ScannerKind.Unknown : (ScannerKind)Native.Smon_GetScannerKind(handle);
         }
     }
 
     public static ScanSession Start(string path, IProgress<ScanProgress>? progress) => Start(path, progress, null);
 
-    public static unsafe ScanSession Start(string path, IProgress<ScanProgress>? progress, ScanOptions? options)
+    public static unsafe ScanSession Start(string path, IProgress<ScanProgress>? progress, ScanOptions? options) =>
+        Start(path, progress, options, null);
+
+    public static unsafe ScanSession Start(string path, IProgress<ScanProgress>? progress, ScanOptions? options,
+        ScanProgressOptions? progressOptions)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         options?.Validate();
+        progressOptions ??= new ScanProgressOptions();
+        progressOptions.Validate();
         var session = new ScanSession();
+        session._progress = progress is null ? null : new ProgressCoalescer(progress, progressOptions.MinimumInterval);
         SmonProgressCallback? callback = progress is null ? null :
             (dirs, files, bytes, _) =>
             {
-                try { progress.Report(new ScanProgress(dirs, files, bytes)); }
-                catch { }
+                session._progress?.Offer(new ScanProgress(dirs, files, bytes));
             };
         session._callbackDelegate = callback;
 
+        IntPtr rawHandle;
         if (options is null)
-            session._handle = Native.Smon_BeginScan(path, callback, IntPtr.Zero);
+            rawHandle = Native.Smon_BeginScan(path, callback, IntPtr.Zero);
         else
         {
             string? patterns = options.BuildExcludedPatternList();
@@ -49,11 +56,12 @@ public sealed class ScanSession : IDisposable
             fixed (char* extensionPointer = extensions)
             {
                 SmonScanOptionsNative native = options.ToNative((IntPtr)patternPointer, (IntPtr)extensionPointer);
-                session._handle = Native.Smon_BeginScanEx(path, ref native, callback, IntPtr.Zero);
+                rawHandle = Native.Smon_BeginScanEx(path, ref native, callback, IntPtr.Zero);
             }
         }
-        if (session._handle == IntPtr.Zero)
+        if (rawHandle == IntPtr.Zero)
             throw new ScanException((uint)Marshal.GetLastPInvokeError(), path);
+        session._handle = new SafeScanHandle(rawHandle) { CallbackRoot = callback };
         session._state = ScanSessionState.Running;
         return session;
     }
@@ -67,33 +75,49 @@ public sealed class ScanSession : IDisposable
             {
                 while (true)
                 {
-                    if (!TryAcquireHandle(throwIfDisposed: true, out IntPtr handle))
-                        throw new ObjectDisposedException(nameof(ScanSession));
-                    bool completed;
-                    try { completed = Native.Smon_Wait(handle, 200); }
-                    finally { ReleaseHandle(); }
+                    SafeScanHandle handle = GetHandle(throwIfDisposed: true)!;
+                    bool completed = Native.Smon_Wait(handle, 50);
+                    ReportNativeStatus(handle);
                     if (completed) break;
                     cancellationToken.ThrowIfCancellationRequested();
                 }
             }, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
+            SafeScanHandle preResultHandle = GetHandle(throwIfDisposed: true)!;
+            ScanProgress aggregation = (ReadStatus(preResultHandle, terminal: false) ?? new(0, 0, 0))
+                with { Phase = ScanPhase.Aggregation };
+            _progress?.Offer(aggregation, force: true);
             ScanResultManaged result = GetResult();
+            SafeScanHandle handle = GetHandle(throwIfDisposed: true)!;
+            ScanProgress finalizing = (ReadStatus(handle, terminal: false) ?? aggregation)
+                with { Phase = ScanPhase.Finalization, IsTerminal = false };
+            _progress?.Offer(finalizing, force: true);
+            ScanProgress terminal = ReadStatus(handle, terminal: true) ??
+                new(result.DirCount, result.FileCount, result.TotalBytes, ScanPhase.Complete, true);
+            _progress?.Offer(terminal, force: true);
             lock (_gate) if (!_disposed) _state = ScanSessionState.Completed;
             return result;
         }
-        catch (OperationCanceledException) { Cancel(); throw; }
-        catch { lock (_gate) if (!_disposed) _state = ScanSessionState.Failed; throw; }
+        catch (OperationCanceledException)
+        {
+            Cancel();
+            ReportTerminalFallback();
+            throw;
+        }
+        catch
+        {
+            ReportTerminalFallback();
+            lock (_gate) if (!_disposed) _state = ScanSessionState.Failed;
+            throw;
+        }
     }
 
     public void Cancel()
     {
-        if (!TryAcquireHandle(throwIfDisposed: false, out IntPtr handle)) return;
-        try
-        {
-            lock (_gate) if (!_disposed) _state = ScanSessionState.Cancelling;
-            Native.Smon_Cancel(handle);
-        }
-        finally { ReleaseHandle(); }
+        SafeScanHandle? handle = GetHandle(throwIfDisposed: false);
+        if (handle is null) return;
+        lock (_gate) if (!_disposed) _state = ScanSessionState.Cancelling;
+        Native.Smon_Cancel(handle);
     }
 
     public void Pause() => SetPaused(true);
@@ -101,8 +125,8 @@ public sealed class ScanSession : IDisposable
 
     void SetPaused(bool paused)
     {
-        if (!TryAcquireHandle(throwIfDisposed: true, out IntPtr handle)) return;
-        try
+        SafeScanHandle? handle = GetHandle(throwIfDisposed: true);
+        if (handle is null) return;
         {
             lock (_gate)
             {
@@ -112,14 +136,11 @@ public sealed class ScanSession : IDisposable
             if (Native.Smon_SetPaused(handle, paused))
                 lock (_gate) if (!_disposed) _state = paused ? ScanSessionState.Paused : ScanSessionState.Running;
         }
-        finally { ReleaseHandle(); }
     }
 
     unsafe ScanResultManaged GetResult()
     {
-        if (!TryAcquireHandle(throwIfDisposed: true, out IntPtr handle))
-            throw new ObjectDisposedException(nameof(ScanSession));
-        try
+        SafeScanHandle handle = GetHandle(throwIfDisposed: true)!;
         {
             ScanResultNative native = default;
             bool succeeded = Native.Smon_GetResult(handle, &native);
@@ -128,58 +149,91 @@ public sealed class ScanSession : IDisposable
             if (!succeeded) throw new ScanException(details.Win32Error, errorInfo: details);
             return ScanResultManaged.FromNative(native);
         }
-        finally { ReleaseHandle(); }
     }
 
-    bool TryAcquireHandle(bool throwIfDisposed, out IntPtr handle)
+    SafeScanHandle? GetHandle(bool throwIfDisposed)
     {
         lock (_gate)
         {
-            if (_disposed || _handle == IntPtr.Zero)
+            if (_disposed || _handle is null || _handle.IsInvalid || _handle.IsClosed)
             {
                 if (throwIfDisposed) ObjectDisposedException.ThrowIf(_disposed, this);
-                handle = IntPtr.Zero;
-                return false;
+                return null;
             }
-            _nativeCalls++;
-            handle = _handle;
-            return true;
+            return _handle;
         }
     }
 
-    void ReleaseHandle()
+    void ReportNativeStatus(SafeScanHandle handle)
     {
-        lock (_gate)
+        ScanProgress? status = ReadStatus(handle, terminal: false);
+        if (status is not null) _progress?.Offer(status);
+    }
+
+    static ScanProgress? ReadStatus(SafeScanHandle handle, bool terminal)
+    {
+        var status = new SmonScanStatusNative
         {
-            _nativeCalls--;
-            if (_nativeCalls == 0) Monitor.PulseAll(_gate);
-        }
+            StructSize = checked((uint)Marshal.SizeOf<SmonScanStatusNative>()),
+        };
+        return Native.Smon_GetScanStatus(handle, ref status) ? status.ToManaged(terminal) : null;
+    }
+
+    void ReportTerminalFallback()
+    {
+        SafeScanHandle? handle = GetHandle(throwIfDisposed: false);
+        ScanProgress terminal = handle is null
+            ? new(0, 0, 0, ScanPhase.Complete, true)
+            : ReadStatus(handle, terminal: true) ?? new(0, 0, 0, ScanPhase.Complete, true);
+        _progress?.Offer(terminal, force: true);
     }
 
     public void Dispose()
     {
-        IntPtr handle;
+        SafeScanHandle? handle;
         lock (_gate)
         {
             if (_disposed) return;
             _disposed = true;
             handle = _handle;
         }
-        if (handle != IntPtr.Zero)
+        if (handle is not null && !handle.IsClosed)
         {
             Native.Smon_Cancel(handle);
             Native.Smon_Wait(handle, uint.MaxValue);
             lock (_gate)
             {
-                while (_nativeCalls != 0) Monitor.Wait(_gate);
-                _handle = IntPtr.Zero;
+                _handle = null;
             }
-            Native.Smon_FreeResult(handle);
+            handle.Dispose();
         }
         lock (_gate)
         {
             _callbackDelegate = null;
             _state = ScanSessionState.Disposed;
+        }
+    }
+}
+
+internal sealed class ProgressCoalescer(IProgress<ScanProgress> target, TimeSpan minimumInterval)
+{
+    readonly object _gate = new();
+    readonly long _minimumTicks = Math.Max(1, (long)(minimumInterval.TotalSeconds * Stopwatch.Frequency));
+    long _lastDelivery;
+    ScanProgress? _last;
+
+    public void Offer(ScanProgress value, bool force = false)
+    {
+        lock (_gate)
+        {
+            if (_last is not null && value.Phase < _last.Phase) return;
+            long now = Stopwatch.GetTimestamp();
+            if (!force && _lastDelivery != 0 && now - _lastDelivery < _minimumTicks) return;
+            if (!force && value == _last) return;
+            _last = value;
+            _lastDelivery = now;
+            try { target.Report(value); }
+            catch { }
         }
     }
 }
@@ -215,7 +269,7 @@ public sealed record ScanErrorInfo(
     uint AccessWin32Error,
     string? Path)
 {
-    internal static ScanErrorInfo Read(IntPtr handle)
+    internal static ScanErrorInfo Read(SafeScanHandle handle)
     {
         var native = new SmonErrorInfoNative
         {

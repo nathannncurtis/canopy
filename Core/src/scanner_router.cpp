@@ -41,6 +41,8 @@ bool RouterBeginScan(ScanContext* ctx, const wchar_t* path)
     if (!ctx || !path)
         return false;
 
+    ctx->scan_root = path;
+    BeginMutationTracking(ctx);
     LPTHREAD_START_ROUTINE thread_proc = nullptr;
 
     // UNC paths go straight to dir_scanner; no MFT access possible.

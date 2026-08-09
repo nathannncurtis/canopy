@@ -30,6 +30,13 @@
 #define SMON_CAP_AVX2_ASM          0x00000008ull
 #define SMON_CAP_SCAN_OPTIONS      0x00000010ull
 #define SMON_CAP_ERROR_INFO        0x00000020ull
+#define SMON_CAP_SCAN_TELEMETRY    0x00000040ull
+
+#define SMON_SCAN_PHASE_DISCOVERY    1u
+#define SMON_SCAN_PHASE_METADATA     2u
+#define SMON_SCAN_PHASE_AGGREGATION  3u
+#define SMON_SCAN_PHASE_FINALIZATION 4u
+#define SMON_SCAN_PHASE_COMPLETE     5u
 
 #define SMON_ERROR_CATEGORY_NONE       0u
 #define SMON_ERROR_CATEGORY_ARGUMENT   1u
@@ -81,6 +88,22 @@ typedef struct SmonErrorInfo {
     wchar_t path[SMON_ERROR_PATH_CHARS];
 } SmonErrorInfo;
 
+// Additive, versioned telemetry contract. Counters are monotonic for a handle.
+typedef struct SmonScanStatus {
+    uint32_t struct_size;
+    uint32_t phase;
+    uint32_t terminal;
+    uint32_t reserved;
+    uint64_t dirs_visited;
+    uint64_t files_visited;
+    uint64_t bytes_seen;
+    uint64_t skipped_directories;
+    uint64_t skipped_files;
+    uint64_t permission_skips;
+    uint64_t error_skips;
+    uint64_t changed_items;
+} SmonScanStatus;
+
 // 32 bytes, naturally aligned -- matches C# [StructLayout(LayoutKind.Sequential, Pack=8)]
 typedef struct ScanNode {
     uint64_t size;         // on-disk bytes; dirs include all descendants
@@ -131,6 +154,7 @@ SMON_API BOOL WINAPI Smon_SetPaused(ScanHandle handle, BOOL paused);
 SMON_API BOOL WINAPI Smon_Wait(ScanHandle handle, DWORD timeout_ms);
 SMON_API DWORD WINAPI Smon_GetError(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_GetErrorInfo(ScanHandle handle, SmonErrorInfo* error_info);
+SMON_API BOOL WINAPI Smon_GetScanStatus(ScanHandle handle, SmonScanStatus* status);
 SMON_API DWORD WINAPI Smon_GetScannerKind(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_GetResult(ScanHandle handle, ScanResult* out);
 SMON_API void WINAPI Smon_FreeResult(ScanHandle handle);
