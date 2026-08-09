@@ -79,6 +79,10 @@
                     <MenuItem x:Name="_diagnosticsMenuItem" Header="Export _diagnostics..."
                               Click="OnExportDiagnostics" />
                 </MenuItem>
+                <MenuItem Header="_Help">
+                    <MenuItem Header="Help and _concepts" Click="OnOpenHelp" />
+                    <MenuItem Header="_Welcome tour" Click="OnOpenTour" />
+                </MenuItem>
             </Menu>
 
             <ui:InfoBadge Grid.Column="5"
@@ -144,6 +148,7 @@
            <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
@@ -156,30 +161,24 @@
                                         x:Name="_navigationBar" Margin="12,8"
                                         NodeActivated="OnNavigationNodeActivated" />
 
-            <Border Grid.Row="1" Grid.Column="0"
+            <controls:ActionableStateView Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                                          x:Name="_resultState" Margin="12,4,12,8"
+                                          Visibility="Collapsed"
+                                          PrimaryActionRequested="OnResultStatePrimary"
+                                          SecondaryActionRequested="OnResultStateSecondary" />
+
+            <Border Grid.Row="2" Grid.Column="0"
                     x:Name="_treeHost"
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
 
             <!-- column separator -->
-            <Border Grid.Row="1" Grid.Column="1"
+            <Border Grid.Row="2" Grid.Column="1"
                     Width="1"
                     Background="{DynamicResource CardStrokeColorDefaultBrush}" />
 
-            <Border Grid.Row="1" Grid.Column="2"
+            <Border Grid.Row="2" Grid.Column="2"
                     x:Name="_treemapHost" />
 
-            <!-- empty state overlay (spans all columns) -->
-            <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
-                        x:Name="_emptyState"
-                        VerticalAlignment="Center"
-                        HorizontalAlignment="Center"
-                        Visibility="Collapsed">
-                <ui:SymbolIcon Symbol="HardDrive24" FontSize="48" Opacity="0.4" />
-                <ui:TextBlock Text="Select a path and click Scan"
-                              FontTypography="Body"
-                              Appearance="Secondary"
-                              Margin="0,8,0,0" />
-            </StackPanel>
            </Grid>
           </TabItem>
           <TabItem Header="Summary">
@@ -201,6 +200,9 @@
             <controls:LocationHistoryView x:Name="_locationHistoryView"
                                           PathActivated="OnHistoryPathActivated" />
           </TabItem>
+          <TabItem Header="Shortcuts">
+            <controls:ShortcutSettingsView x:Name="_shortcutSettingsView" />
+          </TabItem>
           <TabItem Header="Compare">
             <controls:ScanComparisonView x:Name="_comparisonView"
                                          NodeActivated="OnComparisonNodeActivated" />
@@ -216,6 +218,9 @@
           <TabItem Header="Duplicates">
             <controls:DuplicateFilesView x:Name="_duplicatesView"
                                          PathActivated="OnDuplicatePathActivated" />
+          </TabItem>
+          <TabItem x:Name="_helpTab" Header="Help">
+            <controls:ContextualHelpView x:Name="_contextualHelpView" />
           </TabItem>
         </TabControl>
 
@@ -274,6 +279,12 @@
                 Padding="160,80" MouseDown="OnCommandPaletteBackdrop">
             <controls:CommandPalette x:Name="_commandPalette" VerticalAlignment="Top"
                                      MaxHeight="480" CloseRequested="OnCommandPaletteCloseRequested" />
+        </Border>
+        <Border x:Name="_tourOverlay" Grid.Row="0" Grid.RowSpan="5" Panel.ZIndex="300"
+                Background="#B0000000" Visibility="Collapsed" Padding="80">
+            <controls:FirstRunTourView x:Name="_firstRunTour" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Completed="OnTourCompleted" Dismissed="OnTourDismissed" />
         </Border>
     </Grid>
 </ui:FluentWindow>

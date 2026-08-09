@@ -34,8 +34,23 @@ public sealed class AppCommandRegistry
     {
         ArgumentNullException.ThrowIfNull(definition); ArgumentNullException.ThrowIfNull(execute);
         ValidateDefinition(definition);
+        if (definition.DefaultShortcut is not null)
+        {
+            string normalized = NormalizeShortcut(definition.DefaultShortcut);
+            string? collision = _commands.Keys.FirstOrDefault(id =>
+                string.Equals(GetShortcut(id), normalized, StringComparison.OrdinalIgnoreCase));
+            if (collision is not null)
+                throw new ArgumentException($"Shortcut '{normalized}' is already assigned to '{collision}'.", nameof(definition));
+        }
         if (!_commands.TryAdd(definition.Id, new(definition, execute, canExecute ?? (() => true))))
             throw new ArgumentException($"Command '{definition.Id}' is already registered.", nameof(definition));
+    }
+
+    public bool Unregister(string id)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        _shortcutOverrides.Remove(id);
+        return _commands.Remove(id);
     }
 
     public bool CanExecute(string id) => _commands.TryGetValue(id, out RegisteredCommand? command) && command.CanExecute();
@@ -78,6 +93,20 @@ public sealed class AppCommandRegistry
         return _shortcutOverrides.TryGetValue(id, out string? value) ? value : command.Definition.DefaultShortcut;
     }
 
+    public void ResetShortcut(string id)
+    {
+        if (!_commands.TryGetValue(id, out RegisteredCommand? command))
+            throw new KeyNotFoundException($"Unknown command '{id}'.");
+        if (command.Definition.DefaultShortcut is string defaultShortcut)
+        {
+            string? collision = _commands.Keys.FirstOrDefault(other => !other.Equals(id, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(GetShortcut(other), defaultShortcut, StringComparison.OrdinalIgnoreCase));
+            if (collision is not null)
+                throw new ArgumentException($"Shortcut '{defaultShortcut}' is already assigned to '{collision}'.");
+        }
+        _shortcutOverrides.Remove(id);
+    }
+
     public string? FindCommandByShortcut(string shortcut)
     {
         string normalized = NormalizeShortcut(shortcut);
@@ -90,8 +119,24 @@ public sealed class AppCommandRegistry
     public void ApplyOverrides(IReadOnlyDictionary<string, string?> overrides)
     {
         ArgumentNullException.ThrowIfNull(overrides);
+        var candidate = new Dictionary<string, string?>(_shortcutOverrides, StringComparer.OrdinalIgnoreCase);
         foreach ((string id, string? shortcut) in overrides)
-            if (_commands.ContainsKey(id)) SetShortcut(id, shortcut);
+        {
+            if (!_commands.ContainsKey(id)) continue;
+            if (!string.IsNullOrWhiteSpace(shortcut)) ValidateShortcut(shortcut);
+            candidate[id] = string.IsNullOrWhiteSpace(shortcut) ? null : NormalizeShortcut(shortcut);
+        }
+        var assigned = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string id in _commands.Keys)
+        {
+            string? shortcut = candidate.TryGetValue(id, out string? value)
+                ? value : _commands[id].Definition.DefaultShortcut;
+            if (shortcut is not null && assigned.TryGetValue(shortcut, out string? owner))
+                throw new ArgumentException($"Shortcut '{shortcut}' is assigned to both '{owner}' and '{id}'.");
+            if (shortcut is not null) assigned[shortcut] = id;
+        }
+        _shortcutOverrides.Clear();
+        foreach ((string id, string? value) in candidate) _shortcutOverrides[id] = value;
     }
 
     public string GenerateShortcutHelp()

@@ -1,6 +1,8 @@
 using System.Security.Principal;
 using System.Diagnostics;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Windows;
 using System.Windows.Input;
 using SizeMonitor.Controls;
@@ -27,6 +29,8 @@ public partial class MainWindow : FluentWindow
     ShellItemActionsMenu?    _shellActionsMenu;
     readonly ScanCompletionNotificationService _notificationService = new();
     readonly AppCommandRegistry _commands = new();
+    readonly ShortcutOverrideStore _shortcutStore = new(AppDataPaths.ShortcutOverrides);
+    readonly HashSet<string> _dynamicCommandIds = new(StringComparer.OrdinalIgnoreCase);
     bool                     _paused;
     bool                     _scanInProgress;
     bool                     _diagnosticsInProgress;
@@ -80,7 +84,25 @@ public partial class MainWindow : FluentWindow
             "Copy a privacy-safe scan summary.", "Ctrl+Shift+C", ["clipboard"]),
             _ => { OnCopySummary(this, new RoutedEventArgs()); return Task.CompletedTask; },
             () => _result is { Nodes.Length: > 0 });
+        _commands.Register(new("help.open", "Open help and concepts", "Help",
+            "Explain sizes, elevation, privacy, and result states.", "F1", ["documentation"]),
+            _ => { ShowHelp(HelpTopic.Size); return Task.CompletedTask; });
+        _commands.Register(new("tour.open", "Open welcome tour", "Help",
+            "Restart the guided Canopy introduction.", null, ["onboarding"]),
+            _ => { ShowTour(); return Task.CompletedTask; });
+        _commands.Register(new(CanopyCommandIds.FavoritesToggle, "Toggle favorite location", "Locations",
+            "Pin or unpin the first configured scan path.", "Ctrl+D", ["pin", "bookmark"]),
+            async token => await ToggleCurrentFavoriteAsync(token),
+            () => _locationHistory is not null && ParsePaths(_pathBox.Text).Length > 0);
+        _commands.Register(new(CanopyCommandIds.SavedSearchSave, "Save current search", "Search",
+            "Open Search so the current filters can be named and saved.", null, ["preset", "filter"]),
+            _ => { SelectTab("Search"); return Task.CompletedTask; });
+        _commands.Register(new("shortcuts.edit", "Customize keyboard shortcuts", "Application",
+            "View shortcut documentation and change command bindings.", null, ["keys", "hotkeys"]),
+            _ => { SelectTab("Shortcuts"); return Task.CompletedTask; });
         _commandPalette.SetRegistry(_commands);
+        _shortcutSettingsView.SetRegistry(_commands, _shortcutStore);
+        _searchView.PresetsChanged += RegisterSavedSearchCommands;
     }
 
     void OpenCommandPalette()
@@ -90,6 +112,58 @@ public partial class MainWindow : FluentWindow
     }
 
     void CloseCommandPalette() => _commandPaletteOverlay.Visibility = Visibility.Collapsed;
+
+    void ShowHelp(HelpTopic topic)
+    {
+        _contextualHelpView.ShowTopic(topic);
+        _contentTabs.SelectedItem = _helpTab;
+        _contextualHelpView.Focus();
+    }
+
+    void ShowTour()
+    {
+        _tourOverlay.Visibility = Visibility.Visible;
+        _firstRunTour.Restart();
+    }
+
+    void OnOpenHelp(object sender, RoutedEventArgs e) => ShowHelp(HelpTopic.Size);
+    void OnOpenTour(object sender, RoutedEventArgs e) => ShowTour();
+    void OnTourDismissed() => _tourOverlay.Visibility = Visibility.Collapsed;
+    void OnTourCompleted()
+    {
+        try { TourCompletionStore.MarkComplete(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            Logger.Error("could not save welcome tour completion", ex);
+        }
+        _tourOverlay.Visibility = Visibility.Collapsed;
+        _pathBox.Focus();
+    }
+
+    void ShowResultState(ActionableState state)
+    {
+        _resultState.SetState(state);
+        _resultState.Visibility = Visibility.Visible;
+    }
+
+    void OnResultStatePrimary()
+    {
+        if (_resultState.State?.Kind is ActionableStateKind.Partial or ActionableStateKind.Error)
+            OnScan(this, new RoutedEventArgs());
+        else
+            _pathBox.Focus();
+    }
+
+    void OnResultStateSecondary()
+    {
+        HelpTopic topic = _resultState.State?.Kind switch
+        {
+            ActionableStateKind.PermissionRequired => HelpTopic.Elevation,
+            ActionableStateKind.Error or ActionableStateKind.Partial or ActionableStateKind.NoResults => HelpTopic.States,
+            _ => HelpTopic.Size,
+        };
+        ShowHelp(topic);
+    }
 
     void OnCommandPaletteCloseRequested() => CloseCommandPalette();
 
@@ -112,7 +186,10 @@ public partial class MainWindow : FluentWindow
         bool elevated = new WindowsPrincipal(WindowsIdentity.GetCurrent())
             .IsInRole(WindowsBuiltInRole.Administrator);
         _elevBadge.Visibility  = elevated ? Visibility.Collapsed : Visibility.Visible;
-        _emptyState.Visibility = Visibility.Visible;
+        ShowResultState(new(ActionableStateKind.Empty, "Choose a location to begin",
+            "Enter a path above, or choose a recent location, then start a scan.",
+            "Focus path", "Learn how scanning works"));
+        if (!TourCompletionStore.IsComplete()) ShowTour();
         try
         {
             string historyPath = Path.Combine(
@@ -120,11 +197,23 @@ public partial class MainWindow : FluentWindow
                 "SizeMonitor", "locations.json");
             _locationHistory = new LocationHistoryStore(historyPath);
             await _locationHistoryView.SetStoreAsync(_locationHistory);
+            RegisterFavoriteCommands();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                       or ArgumentException or InvalidDataException)
         {
             Logger.Error("could not load location history", ex);
+        }
+        try
+        {
+            _commands.ApplyOverrides(await _shortcutStore.LoadAsync());
+            _shortcutSettingsView.SetRegistry(_commands, _shortcutStore);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                      or ArgumentException or InvalidDataException)
+        {
+            Logger.Error("could not load shortcut settings", ex);
+            _statCurrent.Text = $"Shortcut settings were not loaded: {ex.Message}";
         }
     }
 
@@ -151,7 +240,7 @@ public partial class MainWindow : FluentWindow
         _btnScan.IsEnabled      = false;
         _btnPause.IsEnabled     = true;
         _btnCancel.IsEnabled    = true;
-        _emptyState.Visibility  = Visibility.Collapsed;
+        _resultState.Visibility = Visibility.Collapsed;
         _statSize.Text          = "Scanning...";
         _statFiles.Text         = "";
         _statTime.Text          = "";
@@ -229,6 +318,7 @@ public partial class MainWindow : FluentWindow
                         foreach (TargetScanResult target in targetResults)
                             await _locationHistory.TouchAsync(target.Path, cancellationToken: CancellationToken.None);
                         _locationHistoryView.RefreshLocations();
+                        RegisterFavoriteCommands();
                     }
                     catch (Exception historyError) when (historyError is IOException or UnauthorizedAccessException
                                                           or InvalidDataException or ArgumentException)
@@ -239,6 +329,9 @@ public partial class MainWindow : FluentWindow
                 }
                 if (failures.Length > 0)
                 {
+                    ShowResultState(new(ActionableStateKind.Partial, "Some locations could not be scanned",
+                        "Successful results are available below. Review permissions, exclusions, and network connections before retrying.",
+                        "Retry scan", "Why can scans be partial?"));
                     foreach (TargetScanOutcome failure in failures)
                         Logger.Error($"scan target failed: {failure.Path}",
                             failure.Error ?? new IOException("Unknown scan failure."));
@@ -265,8 +358,10 @@ public partial class MainWindow : FluentWindow
             _statTime.Text          = "";
             _statTimeSep.Visibility = Visibility.Collapsed;
             _statCurrent.Text       = "";
-            _emptyState.Visibility  = _result is { Nodes.Length: > 0 }
-                ? Visibility.Collapsed : Visibility.Visible;
+            if (_result is not { Nodes.Length: > 0 })
+                ShowResultState(new(ActionableStateKind.Empty, "Scan cancelled",
+                    "No new results were applied. Update the path or options and try again.",
+                    "Retry scan", "Scanning help"));
         }
         catch (Exception ex)
         {
@@ -276,6 +371,10 @@ public partial class MainWindow : FluentWindow
             _statTime.Text          = "";
             _statTimeSep.Visibility = Visibility.Collapsed;
             _statCurrent.Text       = "";
+            if (_result is not { Nodes.Length: > 0 })
+                ShowResultState(new(ActionableStateKind.Error, "The scan could not finish",
+                    "Verify that the location exists and is online. Permission errors may require elevation.",
+                    "Retry scan", "Troubleshooting", ex.Message));
             await NotifyScanCompletionAsync(new ScanCompletionSummary
             {
                 Outcome = ScanCompletionOutcome.Failure,
@@ -320,6 +419,68 @@ public partial class MainWindow : FluentWindow
             Logger.Error("scan completion notification failed", ex);
         }
     }
+
+    async Task ToggleCurrentFavoriteAsync(CancellationToken token)
+    {
+        if (_locationHistory is null) return;
+        string? path = ParsePaths(_pathBox.Text).FirstOrDefault();
+        if (path is null) return;
+        bool pinned = _locationHistory.Locations.Any(item => item.IsFavorite &&
+            string.Equals(item.Path, LocationHistoryStore.NormalizeWindowsPath(path), StringComparison.OrdinalIgnoreCase));
+        if (pinned) await _locationHistory.UnpinAsync(path, token);
+        else await _locationHistory.PinAsync(path, cancellationToken: token);
+        _locationHistoryView.RefreshLocations();
+        RegisterFavoriteCommands();
+        _statCurrent.Text = pinned ? $"Removed {path} from favorites." : $"Added {path} to favorites.";
+    }
+
+    void RegisterFavoriteCommands()
+    {
+        RemoveDynamicCommands("favorite.");
+        if (_locationHistory is null) return;
+        foreach (ScanLocation location in _locationHistory.Locations.Where(item => item.IsFavorite))
+        {
+            string id = "favorite." + StableId(location.Path);
+            string path = location.Path;
+            _commands.Register(new(id, $"Use favorite: {location.DisplayName}", "Locations",
+                $"Set the scan path to {location.DisplayName}.", null, ["favorite", path]),
+                _ => { _pathBox.Text = path; SelectTab("Explore"); return Task.CompletedTask; });
+            _dynamicCommandIds.Add(id);
+        }
+        _commandPalette.SetRegistry(_commands);
+    }
+
+    void RegisterSavedSearchCommands(IReadOnlyList<ScanFilterPreset> presets)
+    {
+        RemoveDynamicCommands("saved-search.");
+        foreach (ScanFilterPreset preset in presets)
+        {
+            string id = "saved-search." + StableId(preset.Name);
+            string name = preset.Name;
+            _commands.Register(new(id, $"Search: {name}", "Saved searches",
+                $"Apply the saved '{name}' filters.", null, ["preset", "filter"]),
+                async token => { SelectTab("Search"); await _searchView.ApplyPresetAsync(name, token); },
+                () => _result is not null);
+            _dynamicCommandIds.Add(id);
+        }
+        _commandPalette.SetRegistry(_commands);
+    }
+
+    void RemoveDynamicCommands(string prefix)
+    {
+        foreach (string id in _dynamicCommandIds.Where(id => id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToArray())
+        { _commands.Unregister(id); _dynamicCommandIds.Remove(id); }
+    }
+
+    void SelectTab(string header)
+    {
+        foreach (object item in _contentTabs.Items)
+            if (item is System.Windows.Controls.TabItem tab && string.Equals(tab.Header?.ToString(), header, StringComparison.OrdinalIgnoreCase))
+            { _contentTabs.SelectedItem = tab; break; }
+    }
+
+    static string StableId(string value) => Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..16].ToLowerInvariant();
 
     void OnPause(object sender, RoutedEventArgs e)
     {
@@ -366,6 +527,7 @@ public partial class MainWindow : FluentWindow
 
     void OnWindowNavigationKeyDown(object sender, KeyEventArgs e)
     {
+        if (_tourOverlay.Visibility == Visibility.Visible) return;
         if (_commandPaletteOverlay.Visibility == Visibility.Visible && e.Key == Key.Escape)
         {
             CloseCommandPalette();
@@ -408,7 +570,7 @@ public partial class MainWindow : FluentWindow
         if (modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
         if (modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
         if (modifiers.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
-        if (parts.Count == 0) return null;
+        if (parts.Count == 0 && key is < Key.F1 or > Key.F12) return null;
         parts.Add(keyName);
         return string.Join('+', parts);
     }
@@ -451,7 +613,12 @@ public partial class MainWindow : FluentWindow
         _saveSnapshotMenuItem.IsEnabled = true;
         _exportMenuItem.IsEnabled = hasNodes;
         _copySummaryMenuItem.IsEnabled = hasNodes;
-        _emptyState.Visibility = hasNodes ? Visibility.Collapsed : Visibility.Visible;
+        if (hasNodes)
+            _resultState.Visibility = Visibility.Collapsed;
+        else
+            ShowResultState(new(ActionableStateKind.NoResults, "This scan contains no results",
+                "The location may be empty, or filters and exclusions may have removed every item.",
+                "Review scan options", "Understand empty results"));
         _treemap?.SetRoot(result, 0);
         if (hasNodes)
             ShowNodeMetrics(0);
