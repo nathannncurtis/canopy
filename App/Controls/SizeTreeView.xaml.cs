@@ -12,11 +12,13 @@ public partial class SizeTreeView : UserControl
     public event Action<uint>? NodeSelected;
     public event Action<uint>? NodeActivated;
     public event Action<ResultSelectionSummary>? MultiSelectionChanged;
+    public event Action<ResultSelectionSummary>? FileDragRequested;
     SizeNodeView[] _views = [];
     ScanResultManaged? _result;
     readonly ResultSelectionModel _selection = new();
     uint[] _displayOrder = [];
     bool _syncingMarks;
+    Point? _dragStart;
 
     public SizeTreeView()
     {
@@ -219,5 +221,18 @@ public partial class SizeTreeView : UserControl
         if (_tree.SelectedItem is not SizeNodeView view) return;
         if (e.Key == Key.Space) { ApplySelection(view.Index, ModifierKeys.Control); e.Handled = true; }
         else if (e.Key == Key.Enter) { NodeActivated?.Invoke(view.Index); e.Handled = true; }
+    }
+
+    void OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) => _dragStart = e.GetPosition(_tree);
+
+    void OnPreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_dragStart is not Point start || e.LeftButton != MouseButtonState.Pressed || _result is null) return;
+        Point current = e.GetPosition(_tree);
+        if (Math.Abs(current.X - start.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(current.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        _dragStart = null;
+        ResultSelectionSummary summary = _selection.Summarize(_result);
+        if (summary.Items.Count > 0) FileDragRequested?.Invoke(summary);
     }
 }

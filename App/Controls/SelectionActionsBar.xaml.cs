@@ -5,7 +5,7 @@ using SizeMonitor.Interop;
 
 namespace SizeMonitor.Controls;
 
-public enum SelectionAction { Open, OpenContaining, CopyPaths, CopyText, CopyCsv }
+public enum SelectionAction { Open, OpenContaining, CopyPaths, CopyText, CopyCsv, Properties, ElevatedTerminal }
 
 public partial class SelectionActionsBar : UserControl
 {
@@ -20,7 +20,7 @@ public partial class SelectionActionsBar : UserControl
             ? "No items selected"
             : $"{count:N0} selected · {SizeFormatter.FormatBytes(selection!.TotalBytes)}";
         _open.IsEnabled = _containing.IsEnabled = _paths.IsEnabled =
-            _text.IsEnabled = _csv.IsEnabled = count > 0;
+            _text.IsEnabled = _csv.IsEnabled = _properties.IsEnabled = _terminal.IsEnabled = count > 0;
     }
 
     void OnAction(object sender, RoutedEventArgs e)

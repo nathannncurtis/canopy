@@ -114,6 +114,38 @@ public sealed class ResultSelectionTests
         Assert.Equal(["/select,", path], plan.Arguments);
     }
 
+    [Fact]
+    public void DroppedPathValidationCanonicalizesMixedUnicodeLongTargetsAndReportsInvalidOnes()
+    {
+        string longFile = Path.Combine("C:\\資料", new string('é', 270) + ".txt");
+        string folder = "C:\\資料\\folder";
+        string missing = "C:\\missing";
+        var existing = new HashSet<string>([Path.GetFullPath(longFile), Path.GetFullPath(folder)],
+            StringComparer.OrdinalIgnoreCase);
+
+        PathTransferPlan plan = PathTransfers.Validate(
+            [longFile, folder, longFile.ToUpperInvariant(), missing, "\0invalid"], existing.Contains);
+
+        Assert.Equal(2, plan.Accepted.Count);
+        Assert.Contains(Path.GetFullPath(longFile), plan.Accepted);
+        Assert.Contains(Path.GetFullPath(folder), plan.Accepted);
+        Assert.Equal([missing, "\0invalid"], plan.Rejected);
+    }
+
+    [Fact]
+    public void DroppedScanDecisionStartsWhenIdleStagesWhenBusyAndRejectsEmptyPlans()
+    {
+        var mixed = new PathTransferPlan(["C:\\valid", "C:\\also-valid"], ["C:\\missing"]);
+        Assert.Equal(DroppedScanAction.StartNow, PathTransfers.DecideScanAction(mixed, scanInProgress: false));
+        Assert.Equal(DroppedScanAction.StageUntilIdle, PathTransfers.DecideScanAction(mixed, scanInProgress: true));
+
+        var invalidOnly = new PathTransferPlan([], ["C:\\missing"]);
+        Assert.Equal(DroppedScanAction.NoValidTargets,
+            PathTransfers.DecideScanAction(invalidOnly, scanInProgress: false));
+        Assert.Equal(DroppedScanAction.NoValidTargets,
+            PathTransfers.DecideScanAction(invalidOnly, scanInProgress: true));
+    }
+
     static ScanResultManaged Result(ulong folderBytes, ulong fileBytes) => new()
     {
         Nodes = [
