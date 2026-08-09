@@ -41,6 +41,20 @@ public sealed class ScanSession : IDisposable
         }
     }
 
+    public ScanNodeMetadata? GetNodeMetadata(uint nodeIndex)
+    {
+        SafeScanHandle? handle = _handle;
+        if (handle is null || handle.IsInvalid) return null;
+        var native = new SmonNodeMetadataNative
+        {
+            StructSize = checked((uint)Marshal.SizeOf<SmonNodeMetadataNative>()),
+        };
+        return Native.Smon_GetNodeMetadata(handle, nodeIndex, ref native)
+            ? new(native.Flags, native.LinkCount, native.VolumeSerial, native.FileId,
+                native.LogicalBytes, native.AllocatedBytes, native.UniquelyAccountedBytes)
+            : null;
+    }
+
     public static ScanSession Start(string path, IProgress<ScanProgress>? progress) => Start(path, progress, null);
 
     public static unsafe ScanSession Start(string path, IProgress<ScanProgress>? progress, ScanOptions? options) =>

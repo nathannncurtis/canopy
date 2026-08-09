@@ -48,7 +48,8 @@ BOOL WINAPI Smon_GetCapabilities(SmonCapabilities* capabilities)
                   SMON_CAP_SCAN_OPTIONS |
                   SMON_CAP_ERROR_INFO |
                   SMON_CAP_SCAN_TELEMETRY |
-                  SMON_CAP_ROUTE_INFO;
+                  SMON_CAP_ROUTE_INFO |
+                  SMON_CAP_NODE_METADATA;
 #if defined(SMON_ENABLE_AVX2_SUM)
     if (CpuHasAvx2()) value.flags |= SMON_CAP_AVX2_ASM;
 #endif
@@ -313,6 +314,26 @@ BOOL WINAPI Smon_GetRouteInfo(ScanHandle h, SmonRouteInfo* info)
     return TRUE;
 }
 
+BOOL WINAPI Smon_GetNodeMetadata(ScanHandle h, uint32_t index, SmonNodeMetadata* metadata)
+{
+    if (!h || !metadata) { SetLastError(ERROR_INVALID_PARAMETER); return FALSE; }
+    uint32_t caller_size = metadata->struct_size;
+    constexpr uint32_t minimum_size =
+        static_cast<uint32_t>(offsetof(SmonNodeMetadata, link_count) + sizeof(uint32_t));
+    if (caller_size < minimum_size) {
+        metadata->struct_size = sizeof(SmonNodeMetadata);
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return FALSE;
+    }
+    auto* ctx = static_cast<ScanContext*>(h);
+    if (index >= ctx->node_metadata.size()) { SetLastError(ERROR_NOT_FOUND); return FALSE; }
+    SmonNodeMetadata value = ctx->node_metadata[index];
+    value.struct_size = sizeof(value);
+    std::memcpy(metadata, &value, caller_size < sizeof(value) ? caller_size : sizeof(value));
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
+}
+
 BOOL WINAPI Smon_GetResult(ScanHandle h, ScanResult* out)
 {
     if (!h || !out) return FALSE;
@@ -320,8 +341,36 @@ BOOL WINAPI Smon_GetResult(ScanHandle h, ScanResult* out)
     FinishMutationTracking(ctx);
     ctx->phase.store(SMON_SCAN_PHASE_AGGREGATION, std::memory_order_release);
     ctx->pool.Finalize(&ctx->result);
+    if (ctx->node_metadata.size() < ctx->result.node_count)
+        ctx->node_metadata.resize(ctx->result.node_count);
+    for (uint32_t index = 0; index < ctx->result.node_count; ++index) {
+        SmonNodeMetadata& metadata = ctx->node_metadata[index];
+        metadata.struct_size = sizeof(metadata);
+        if (metadata.link_count == 0) metadata.link_count = 1;
+        if (metadata.allocated_bytes == 0 && ctx->result.nodes[index].size != 0) {
+            metadata.flags |= SMON_NODE_META_UNIQUE_ALLOCATION;
+            metadata.logical_bytes = ctx->result.nodes[index].size;
+            metadata.allocated_bytes = ctx->result.nodes[index].size;
+            metadata.uniquely_accounted_bytes = ctx->result.nodes[index].size;
+        }
+    }
     if (!ctx->rolled_up) {
         RollupSizes(&ctx->result);
+        // Duplicate hard-link leaves contribute zero during propagation, then
+        // regain their visible allocated size after unique directory totals settle.
+        for (uint32_t index = 0; index < ctx->result.node_count; ++index) {
+            if ((ctx->result.nodes[index].flags & SMON_FLAG_DIRECTORY) == 0 &&
+                index < ctx->node_metadata.size())
+                ctx->result.nodes[index].size = ctx->node_metadata[index].allocated_bytes;
+            else if ((ctx->result.nodes[index].flags & SMON_FLAG_DIRECTORY) != 0 &&
+                     index < ctx->node_metadata.size()) {
+                SmonNodeMetadata& metadata = ctx->node_metadata[index];
+                metadata.flags |= SMON_NODE_META_UNIQUE_ALLOCATION;
+                metadata.logical_bytes = ctx->result.nodes[index].size;
+                metadata.allocated_bytes = ctx->result.nodes[index].size;
+                metadata.uniquely_accounted_bytes = ctx->result.nodes[index].size;
+            }
+        }
         ctx->rolled_up = true;
     }
     ctx->phase.store(SMON_SCAN_PHASE_FINALIZATION, std::memory_order_release);

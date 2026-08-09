@@ -16,6 +16,7 @@ public enum CoreCapability : ulong
     ScanTelemetry = 0x00000040,
     Arm64Intrinsics = 0x00000080,
     RouteInfo = 0x00000100,
+    NodeMetadata = 0x00000200,
 }
 
 public enum FilesystemKind : uint { Unknown, Ntfs, Refs, Fat, Fat32, Exfat, Other, Network }

@@ -177,6 +177,16 @@ int wmain(int argc, wchar_t* argv[])
         Smon_FreeResult(filtered_handle);
         return 1;
     }
+    SmonNodeMetadata short_metadata{};
+    short_metadata.struct_size = sizeof(uint32_t);
+    if (!Check(!Smon_GetNodeMetadata(filtered_handle, 0, &short_metadata) &&
+               GetLastError() == ERROR_INSUFFICIENT_BUFFER &&
+               short_metadata.struct_size == sizeof(SmonNodeMetadata),
+               L"node metadata negotiates additive struct size")) return 1;
+    SmonNodeMetadata root_metadata{ sizeof(SmonNodeMetadata) };
+    if (!Check(Smon_GetNodeMetadata(filtered_handle, 0, &root_metadata),
+               L"root metadata query succeeds") ||
+        !Check(root_metadata.link_count >= 1, L"root metadata exposes link count")) return 1;
     for (uint32_t i = 0; i < filtered_result.node_count; ++i) {
         const ScanNode& node = filtered_result.nodes[i];
         const wchar_t* name = filtered_result.name_buf + node.name_offset;

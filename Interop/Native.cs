@@ -66,6 +66,11 @@ internal static unsafe class Native
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool Smon_GetRouteInfo(SafeScanHandle handle, ref SmonRouteInfoNative routeInfo);
 
+    [DllImport(Dll, ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool Smon_GetNodeMetadata(SafeScanHandle handle, uint nodeIndex,
+        ref SmonNodeMetadataNative metadata);
+
     [DllImport(Dll, ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool Smon_GetResult(SafeScanHandle handle, ScanResultNative* result);

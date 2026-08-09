@@ -3,6 +3,7 @@
 #include "traversal_policy.h"
 #include "filesystem_policy.h"
 #include "network_scan_policy.h"
+#include "filesystem_identity.h"
 #include <queue>
 #include <string>
 #include <vector>
@@ -78,6 +79,7 @@ struct DirState {
     uint64_t volatile       bytes_done;
     PTP_WORK                tp_work;   // set after creation so callbacks can resubmit
     TraversalIdentityTracker identities;
+    FileAllocationTracker allocations;
 };
 
 static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK work);
@@ -154,6 +156,10 @@ DWORD WINAPI DirScanThread(LPVOID param)
         root->first_child  = UINT32_MAX;
         root->next_sibling = UINT32_MAX;
         root->size         = 0;
+        ctx->node_metadata.resize(root_idx + 1);
+        ctx->node_metadata[root_idx].struct_size = sizeof(SmonNodeMetadata);
+        ctx->node_metadata[root_idx].flags = SMON_NODE_META_UNIQUE_ALLOCATION;
+        ctx->node_metadata[root_idx].link_count = 1;
     }
 
     // Thread pool setup.
@@ -313,14 +319,22 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
     }
     const uint64_t file_id = (static_cast<uint64_t>(identity.nFileIndexHigh) << 32) |
         identity.nFileIndexLow;
-    bool reject_directory = false;
+    TraversalDecision identity_decision;
     {
         EnterCriticalSection(&state->cs);
-        reject_directory = state->identities.Observe(identity.dwVolumeSerialNumber, file_id,
-            ctx->options.stay_on_volume) != TraversalDecision::Visit;
+        identity_decision = state->identities.Observe(identity.dwVolumeSerialNumber, file_id,
+            ctx->options.stay_on_volume);
+        if (item.parent_idx < ctx->node_metadata.size()) {
+            SmonNodeMetadata& metadata = ctx->node_metadata[item.parent_idx];
+            metadata.volume_serial = identity.dwVolumeSerialNumber;
+            metadata.file_id = file_id;
+            metadata.link_count = identity.nNumberOfLinks;
+            if (identity_decision == TraversalDecision::AlreadyVisited)
+                metadata.flags |= SMON_NODE_META_CYCLE_EDGE;
+        }
         LeaveCriticalSection(&state->cs);
     }
-    if (reject_directory) {
+    if (identity_decision != TraversalDecision::Visit) {
         ctx->skipped_directories.fetch_add(1, std::memory_order_relaxed);
         CloseHandle(dir);
         InterlockedDecrement(&state->in_flight);
@@ -400,6 +414,17 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                 std::vector<NamedStreamInfo> streams;
                 if (!is_dir && ctx->options.include_alternate_streams)
                     streams = EnumerateNamedStreams(child_path);
+                BY_HANDLE_FILE_INFORMATION file_identity{};
+                bool has_file_identity = false;
+                if (!is_dir) {
+                    HANDLE file_handle = CreateFileW(child_path.c_str(), FILE_READ_ATTRIBUTES,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                        OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+                    if (file_handle != INVALID_HANDLE_VALUE) {
+                        has_file_identity = GetFileInformationByHandle(file_handle, &file_identity) != FALSE;
+                        CloseHandle(file_handle);
+                    }
+                }
 
                 // AllocNode, AppendName, node field writes, and sibling-chain link
                 // must all be serialized: NodePool is not thread-safe and multiple
@@ -436,6 +461,27 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                         node->size         = entry_size;
                         node->parent       = item.parent_idx;
                         node->first_child  = UINT32_MAX;
+                        if (ctx->node_metadata.size() <= idx) ctx->node_metadata.resize(idx + 1);
+                        SmonNodeMetadata& metadata = ctx->node_metadata[idx];
+                        metadata.struct_size = sizeof(metadata);
+                        metadata.link_count = has_file_identity ? file_identity.nNumberOfLinks : 1;
+                        metadata.logical_bytes = logical_size;
+                        metadata.allocated_bytes = entry_size;
+                        bool unique = !has_file_identity || state->allocations.Account(
+                            file_identity.dwVolumeSerialNumber,
+                            (static_cast<uint64_t>(file_identity.nFileIndexHigh) << 32) |
+                                file_identity.nFileIndexLow);
+                        if (has_file_identity) {
+                            metadata.volume_serial = file_identity.dwVolumeSerialNumber;
+                            metadata.file_id = (static_cast<uint64_t>(file_identity.nFileIndexHigh) << 32) |
+                                file_identity.nFileIndexLow;
+                        }
+                        if (unique) {
+                            metadata.flags |= SMON_NODE_META_UNIQUE_ALLOCATION;
+                            metadata.uniquely_accounted_bytes = entry_size;
+                        } else if (!is_dir) {
+                            node->size = 0;
+                        }
 
                         // Prepend to parent's child list atomically under the lock.
                         ScanNode* parent_node  = ctx->pool.NodeAt(item.parent_idx);
@@ -453,11 +499,20 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                             ScanNode* stream_node = ctx->pool.NodeAt(stream_idx);
                             stream_node->name_len = static_cast<uint32_t>(stream.name.size());
                             stream_node->flags = SMON_FLAG_STREAM;
-                            stream_node->size = stream.size;
+                            stream_node->size = unique ? stream.size : 0;
                             stream_node->parent = idx;
                             stream_node->first_child = UINT32_MAX;
                             stream_node->next_sibling = node->first_child;
                             node->first_child = stream_idx;
+                            if (ctx->node_metadata.size() <= stream_idx)
+                                ctx->node_metadata.resize(stream_idx + 1);
+                            SmonNodeMetadata& stream_metadata = ctx->node_metadata[stream_idx];
+                            stream_metadata.struct_size = sizeof(stream_metadata);
+                            stream_metadata.flags = unique ? SMON_NODE_META_UNIQUE_ALLOCATION : 0;
+                            stream_metadata.link_count = 1;
+                            stream_metadata.logical_bytes = stream.size;
+                            stream_metadata.allocated_bytes = stream.size;
+                            stream_metadata.uniquely_accounted_bytes = unique ? stream.size : 0;
                             InterlockedIncrement64(
                                 reinterpret_cast<volatile LONG64*>(&state->files_done));
                             InterlockedAdd64(

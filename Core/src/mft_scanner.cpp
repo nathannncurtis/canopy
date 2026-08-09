@@ -1,4 +1,5 @@
 #include "mft_scanner.h"
+#include "filesystem_identity.h"
 #include "scan_context.h"
 #include "tree_compactor.h"
 #include <unordered_map>
@@ -345,14 +346,15 @@ DWORD WINAPI MftScanThread(LPVOID param)
                                       FILE_FLAG_BACKUP_SEMANTICS,
                                       nullptr);
         if (root_dir != INVALID_HANDLE_VALUE) {
+            BY_HANDLE_FILE_INFORMATION root_info{};
+            GetFileInformationByHandle(root_dir, &root_info);
+            ctx->node_metadata.resize(node_count);
             for (uint32_t i = 0; i < node_count; ++i) {
                 if (ctx->cancelled.load())
                     break;
                 if (!WaitWhilePaused(ctx))
                     break;
                 ScanNode* node = ctx->pool.NodeAt(i);
-                if (node->flags & SMON_FLAG_DIRECTORY)
-                    continue; // dirs: size will be rolled up from children
                 if (i >= static_cast<uint32_t>(frn_by_idx.size()))
                     continue;
 
@@ -382,7 +384,10 @@ DWORD WINAPI MftScanThread(LPVOID param)
 
                 FILE_STANDARD_INFO fsi{};
                 if (GetFileInformationByHandleEx(fh, FileStandardInfo, &fsi, sizeof(fsi))) {
-                    node->size = static_cast<uint64_t>(fsi.AllocationSize.QuadPart);
+                    SmonNodeMetadata& metadata = ctx->node_metadata[i];
+                    metadata = BuildMftNodeMetadata(root_info.dwVolumeSerialNumber, frn_by_idx[i],
+                        fsi, (node->flags & SMON_FLAG_DIRECTORY) != 0);
+                    node->size = metadata.allocated_bytes;
                     ctx->bytes_seen.fetch_add(node->size, std::memory_order_relaxed);
                 }
                 CloseHandle(fh);
