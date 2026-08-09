@@ -61,6 +61,13 @@ public partial class MainWindow : FluentWindow
         _treemap.PathChanged += OnTreemapPathChanged;
     }
 
+    public void StartScanFromTray(string rootPath)
+    {
+        if (_scanInProgress || string.IsNullOrWhiteSpace(rootPath)) return;
+        _pathBox.Text = rootPath;
+        OnScan(this, new RoutedEventArgs());
+    }
+
     void SetupCommands()
     {
         _commands.Register(new(CanopyCommandIds.PaletteOpen, "Open command palette", "Application",
@@ -104,6 +111,10 @@ public partial class MainWindow : FluentWindow
             "Configure crash-report consent, coarse telemetry, and diagnostic logging.", null,
             ["telemetry", "logging", "consent"]),
             _ => { SelectTab("Privacy"); return Task.CompletedTask; });
+        _commands.Register(new("updates.open", "Check for updates", "Application",
+            "Open the user-driven secure update and portable-mode page.", null,
+            ["version", "portable", "channel"]),
+            _ => { SelectTab("Updates"); return Task.CompletedTask; });
         _commandPalette.SetRegistry(_commands);
         _shortcutSettingsView.SetRegistry(_commands, _shortcutStore);
         _searchView.PresetsChanged += RegisterSavedSearchCommands;
@@ -132,6 +143,7 @@ public partial class MainWindow : FluentWindow
 
     void OnOpenHelp(object sender, RoutedEventArgs e) => ShowHelp(HelpTopic.Size);
     void OnOpenTour(object sender, RoutedEventArgs e) => ShowTour();
+    void OnOpenUpdates(object sender, RoutedEventArgs e) => SelectTab("Updates");
     void OnTourDismissed() => _tourOverlay.Visibility = Visibility.Collapsed;
     void OnTourCompleted()
     {
@@ -196,10 +208,7 @@ public partial class MainWindow : FluentWindow
         if (!TourCompletionStore.IsComplete()) ShowTour();
         try
         {
-            string historyPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "SizeMonitor", "locations.json");
-            _locationHistory = new LocationHistoryStore(historyPath);
+            _locationHistory = new LocationHistoryStore(AppDataPaths.LocationHistory);
             await _locationHistoryView.SetStoreAsync(_locationHistory);
             RegisterFavoriteCommands();
         }

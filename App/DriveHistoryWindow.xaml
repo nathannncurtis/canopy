@@ -1,0 +1,24 @@
+<Window x:Class="SizeMonitor.DriveHistoryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Drive history" Height="420" Width="680"
+        MinHeight="300" MinWidth="520" WindowStartupLocation="CenterScreen">
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+    <TextBlock x:Name="_heading" FontSize="20" FontWeight="SemiBold" />
+    <TextBlock x:Name="_summary" Grid.Row="1" Margin="0,4,0,12" Opacity="0.8" />
+    <DataGrid x:Name="_history" Grid.Row="2" IsReadOnly="True" AutoGenerateColumns="False"
+              HeadersVisibility="Column" CanUserAddRows="False">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Captured" Binding="{Binding Captured}" Width="2*" />
+        <DataGridTextColumn Header="Free" Binding="{Binding Free}" Width="*" />
+        <DataGridTextColumn Header="Free %" Binding="{Binding Percent}" Width="*" />
+        <DataGridTextColumn Header="Event" Binding="{Binding Event}" Width="*" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </Grid>
+</Window>

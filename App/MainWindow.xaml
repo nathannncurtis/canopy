@@ -82,6 +82,8 @@
                 <MenuItem Header="_Help">
                     <MenuItem Header="Help and _concepts" Click="OnOpenHelp" />
                     <MenuItem Header="_Welcome tour" Click="OnOpenTour" />
+                    <Separator />
+                    <MenuItem Header="Check for _updates..." Click="OnOpenUpdates" />
                 </MenuItem>
             </Menu>
 
@@ -200,11 +202,17 @@
             <controls:LocationHistoryView x:Name="_locationHistoryView"
                                           PathActivated="OnHistoryPathActivated" />
           </TabItem>
+          <TabItem Header="Monitoring">
+            <controls:StorageMonitoringView />
+          </TabItem>
           <TabItem Header="Shortcuts">
             <controls:ShortcutSettingsView x:Name="_shortcutSettingsView" />
           </TabItem>
           <TabItem Header="Privacy">
             <controls:ObservabilitySettingsView x:Name="_observabilitySettingsView" />
+          </TabItem>
+          <TabItem Header="Updates">
+            <controls:UpdateSettingsView x:Name="_updateSettingsView" />
           </TabItem>
           <TabItem Header="Compare">
             <controls:ScanComparisonView x:Name="_comparisonView"

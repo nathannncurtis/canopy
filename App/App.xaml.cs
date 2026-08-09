@@ -11,7 +11,11 @@ namespace SizeMonitor;
 
 public partial class App : Application
 {
-    protected override void OnStartup(StartupEventArgs e)
+    TrayMonitorHost? _tray;
+    MainWindow? _window;
+    bool _exiting;
+
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
@@ -55,7 +59,42 @@ public partial class App : Application
         ApplicationAccentColorManager.Apply(accent, ApplicationTheme.Dark, systemGlassColor: false, systemAccentColor: false);
         ApplicationThemeManager.Apply(ApplicationTheme.Dark, WindowBackdropType.Mica, updateAccent: false);
 
-        new MainWindow().Show();
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        if (!e.Args.Contains("--tray", StringComparer.OrdinalIgnoreCase)) ShowMainWindow();
+        _tray = new TrayMonitorHost(ShowMainWindow, StartDriveScan, ExitAsync);
+        await _tray.StartAsync();
+    }
+
+    void StartDriveScan(string rootPath)
+    {
+        ShowMainWindow();
+        _window!.StartScanFromTray(rootPath);
+    }
+
+    void ShowMainWindow()
+    {
+        if (_window is null)
+        {
+            _window = new MainWindow();
+            _window.Closing += (_, args) =>
+            {
+                if (_exiting) return;
+                args.Cancel = true;
+                _window.Hide();
+            };
+        }
+        _window.Show();
+        if (_window.WindowState == WindowState.Minimized) _window.WindowState = WindowState.Normal;
+        _window.Activate();
+    }
+
+    async Task ExitAsync()
+    {
+        if (_exiting) return;
+        _exiting = true;
+        if (_tray is not null) await _tray.DisposeAsync();
+        _window?.Close();
+        Shutdown();
     }
 
     void OnDispatcherException(object sender, DispatcherUnhandledExceptionEventArgs e)

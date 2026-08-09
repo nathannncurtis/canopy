@@ -14,4 +14,7 @@ public static class AppDataPaths
     public static string FilterPresets => Path.Combine(DataDirectory, "filter-presets.json");
     public static string ShortcutOverrides => Path.Combine(DataDirectory, "shortcuts.json");
     public static string ObservabilityDirectory => Path.Combine(DataDirectory, "observability");
+    public static string LocationHistory => Path.Combine(DataDirectory, "locations.json");
+    public static string TourCompletion => Path.Combine(DataDirectory, "tour-completed-v1");
+    public static string DriveHistory => Path.Combine(DataDirectory, "drive-history.json");
 }

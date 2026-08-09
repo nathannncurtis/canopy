@@ -1,0 +1,40 @@
+<UserControl x:Class="SizeMonitor.Controls.StorageMonitoringView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+    <TextBlock Text="Continuous folder monitoring" FontSize="20" FontWeight="SemiBold" />
+    <Grid Grid.Row="1" Margin="0,10,0,8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="70" />
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <TextBox x:Name="_path" ToolTip="Folders to monitor, separated by semicolons" />
+      <TextBlock Grid.Column="1" Text="Poll minutes" Margin="12,0,6,0" VerticalAlignment="Center" />
+      <TextBox Grid.Column="2" x:Name="_minutes" Text="5" />
+      <Button Grid.Column="3" x:Name="_start" Content="Start" Margin="12,0,0,0" Click="OnStart" />
+      <Button Grid.Column="4" x:Name="_stop" Content="Stop" Margin="6,0,0,0"
+              IsEnabled="False" Click="OnStop" />
+    </Grid>
+    <TextBlock Grid.Row="2" x:Name="_status" Margin="0,0,0,8"
+               Text="Opt in by selecting a folder. Watcher events are coalesced and periodic scans reconcile missed events." />
+    <DataGrid Grid.Row="3" x:Name="_samples" IsReadOnly="True" AutoGenerateColumns="False"
+              CanUserAddRows="False" HeadersVisibility="Column">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Folder" Binding="{Binding Path}" Width="2*" />
+        <DataGridTextColumn Header="Captured" Binding="{Binding Captured}" Width="2*" />
+        <DataGridTextColumn Header="Size" Binding="{Binding Size}" Width="*" />
+        <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="*" />
+        <DataGridTextColumn Header="Growth alert" Binding="{Binding Alert}" Width="2*" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </Grid>
+</UserControl>
