@@ -37,6 +37,7 @@ public partial class DuplicateFilesView : UserControl
     string[] _roots = [];
     IReadOnlyList<DuplicateFileGroup> _groups = [];
     DuplicateFileRow[] _rows = [];
+    readonly Dictionary<string, string> _retainedByHash = new(StringComparer.Ordinal);
     long _generation;
 
     public DuplicateFilesView()
@@ -64,6 +65,7 @@ public partial class DuplicateFilesView : UserControl
         _roots = roots.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         _groups = [];
         _rows = [];
+        _retainedByHash.Clear();
         _items.ItemsSource = null;
         UpdateReadyStatus();
     }
@@ -86,6 +88,7 @@ public partial class DuplicateFilesView : UserControl
                 _roots, options, cancellation.Token);
             if (generation != Volatile.Read(ref _generation) || cancellation.IsCancellationRequested) return;
             _groups = groups;
+            _retainedByHash.Clear();
             RebuildRows();
             ulong reclaimable = groups.Aggregate(0ul, (total, group) =>
                 AddSaturating(total, MultiplySaturating((ulong)group.Size, (ulong)(group.Paths.Count - 1))));
@@ -132,6 +135,20 @@ public partial class DuplicateFilesView : UserControl
     void OnCancel(object sender, RoutedEventArgs e) => Cancel();
     void OnPolicyChanged(object sender, SelectionChangedEventArgs e) { if (_items is not null) RebuildRows(); }
 
+    void OnKeepThisCopy(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: DuplicateFileRow selected }) return;
+        _retainedByHash[selected.Sha256] = selected.Path;
+        foreach (DuplicateFileRow row in _rows.Where(row => row.Sha256 == selected.Sha256))
+            row.IsRecommendedRetain = row.Path.Equals(selected.Path, StringComparison.OrdinalIgnoreCase);
+        _status.Text = $"Group {selected.GroupNumber:N0} will retain the selected copy. " +
+            "No deletion has been scheduled.";
+        RaiseStatusChanged();
+    }
+
+    public DuplicateRetentionPlan CreateRetentionPlan() =>
+        DuplicateRetentionPlanner.Create(_groups, _retainedByHash);
+
     void OnItemDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (_items.SelectedItem is DuplicateFileRow row) PathActivated?.Invoke(row.Path);
@@ -143,7 +160,10 @@ public partial class DuplicateFilesView : UserControl
         for (int groupIndex = 0; groupIndex < _groups.Count; groupIndex++)
         {
             DuplicateFileGroup group = _groups[groupIndex];
-            string retain = Recommend(group.Paths);
+            string retain = _retainedByHash.TryGetValue(group.Sha256, out string? selected) &&
+                            group.Paths.Any(path => path.Equals(selected, StringComparison.OrdinalIgnoreCase))
+                ? selected
+                : Recommend(group.Paths);
             ulong reclaimable = MultiplySaturating((ulong)group.Size, (ulong)(group.Paths.Count - 1));
             rows.AddRange(group.Paths.Select(path => new DuplicateFileRow
             {

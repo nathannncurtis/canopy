@@ -36,6 +36,13 @@
                 <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" Width="100" />
                 <DataGridTextColumn Header="Reclaimable" Binding="{Binding ReclaimableText}" Width="110" />
                 <DataGridCheckBoxColumn Header="Retain" Binding="{Binding IsRecommendedRetain}" Width="65" />
+                <DataGridTemplateColumn Header="Survivor" Width="95">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="Keep this" Click="OnKeepThisCopy" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Path" Binding="{Binding Path}" Width="*" />
                 <DataGridTextColumn Header="SHA-256" Binding="{Binding Sha256}" Width="220" />
             </DataGrid.Columns>
