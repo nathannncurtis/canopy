@@ -1,0 +1,38 @@
+name: Distribution manifests
+
+on:
+  pull_request:
+    paths:
+      - 'packaging/**'
+      - '.github/workflows/distribution.yml'
+      - 'version.txt'
+  push:
+    branches: [main]
+    paths:
+      - 'packaging/**'
+      - '.github/workflows/distribution.yml'
+      - 'version.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate templates and MSIX configuration
+        shell: pwsh
+        run: ./packaging/scripts/Test-Distribution.ps1 -TemplateMode
+      - name: Exercise deterministic manifest generation
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory artifacts | Out-Null
+          Set-Content artifacts/setup.exe 'deterministic test installer'
+          Set-Content artifacts/portable.zip 'deterministic test archive'
+          ./packaging/scripts/New-ReleaseManifests.ps1 `
+            -Version (Get-Content version.txt -Raw).Trim() `
+            -InstallerPath artifacts/setup.exe `
+            -PortableArchivePath artifacts/portable.zip `
+            -OutputDirectory artifacts/manifests `
+            -ReleaseDate '2026-01-01'

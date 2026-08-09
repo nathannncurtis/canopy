@@ -42,6 +42,10 @@ build.bat
 
 Output lands in `dist\Canopy\`. The build is unsigned.
 
+MSIX packaging plus WinGet and Scoop release manifests are documented in
+[`packaging/README.md`](packaging/README.md). Package templates are validated in CI, while
+signing and external catalog submission remain explicit release-owner steps.
+
 Or build components separately:
 
 ```bat

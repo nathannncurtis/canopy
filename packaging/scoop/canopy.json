@@ -1,0 +1,22 @@
+{
+  "version": "__VERSION__",
+  "description": "Fast Windows disk space analyzer",
+  "homepage": "https://github.com/nathannncurtis/canopy",
+  "license": "GPL-3.0-only",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/nathannncurtis/canopy/releases/download/v__VERSION__/Canopy-v__VERSION__.zip",
+      "hash": "__PORTABLE_SHA256__"
+    }
+  },
+  "bin": "Canopy.exe",
+  "shortcuts": [["Canopy.exe", "Canopy"]],
+  "checkver": { "github": "https://github.com/nathannncurtis/canopy" },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/nathannncurtis/canopy/releases/download/v$version/Canopy-v$version.zip"
+      }
+    }
+  }
+}
