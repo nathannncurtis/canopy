@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: NathanCurtis.Canopy
+PackageVersion: __VERSION__
+PackageLocale: en-US
+Publisher: Nathan Curtis
+PublisherUrl: https://github.com/nathannncurtis
+PublisherSupportUrl: https://github.com/nathannncurtis/canopy/issues
+PackageName: Canopy
+PackageUrl: https://github.com/nathannncurtis/canopy
+License: GPL-3.0-only
+LicenseUrl: https://github.com/nathannncurtis/canopy/blob/main/LICENSE
+ShortDescription: Fast Windows disk space analyzer
+Description: Canopy analyzes local and network storage with native scanners and an accessible Windows interface.
+Tags:
+  - disk
+  - storage
+  - analyzer
+  - ntfs
+ReleaseNotesUrl: https://github.com/nathannncurtis/canopy/releases/tag/v__VERSION__
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
