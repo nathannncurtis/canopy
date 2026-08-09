@@ -269,5 +269,11 @@
                            Margin="0,8,0,0" Opacity="0.7" />
             </StackPanel>
         </Border>
+        <Border x:Name="_commandPaletteOverlay" Grid.Row="0" Grid.RowSpan="5"
+                Panel.ZIndex="200" Background="#99000000" Visibility="Collapsed"
+                Padding="160,80" MouseDown="OnCommandPaletteBackdrop">
+            <controls:CommandPalette x:Name="_commandPalette" VerticalAlignment="Top"
+                                     MaxHeight="480" CloseRequested="OnCommandPaletteCloseRequested" />
+        </Border>
     </Grid>
 </ui:FluentWindow>

@@ -26,6 +26,7 @@ public partial class MainWindow : FluentWindow
     LocationHistoryStore?    _locationHistory;
     ShellItemActionsMenu?    _shellActionsMenu;
     readonly ScanCompletionNotificationService _notificationService = new();
+    readonly AppCommandRegistry _commands = new();
     bool                     _paused;
     bool                     _scanInProgress;
     bool                     _diagnosticsInProgress;
@@ -36,6 +37,7 @@ public partial class MainWindow : FluentWindow
     {
         InitializeComponent();
         SetupControls();
+        SetupCommands();
         AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(OnWindowNavigationKeyDown));
         Loaded += OnLoaded;
     }
@@ -53,6 +55,47 @@ public partial class MainWindow : FluentWindow
         _treemap = new Treemap();
         _treemapHost.Child = _treemap;
         _treemap.PathChanged += OnTreemapPathChanged;
+    }
+
+    void SetupCommands()
+    {
+        _commands.Register(new(CanopyCommandIds.PaletteOpen, "Open command palette", "Application",
+            "Search and run Canopy commands.", "Ctrl+Shift+P", ["commands"]),
+            _ => { OpenCommandPalette(); return Task.CompletedTask; });
+        _commands.Register(new(CanopyCommandIds.ScanStart, "Start scan", "Scan",
+            "Start scanning the configured paths.", "Ctrl+Enter"),
+            _ => { OnScan(this, new RoutedEventArgs()); return Task.CompletedTask; },
+            () => !_scanInProgress && !string.IsNullOrWhiteSpace(_pathBox.Text));
+        _commands.Register(new(CanopyCommandIds.ScanCancel, "Cancel scan", "Scan",
+            "Cancel the active scan."),
+            _ => { OnCancel(this, new RoutedEventArgs()); return Task.CompletedTask; },
+            () => _scanInProgress);
+        _commands.Register(new(CanopyCommandIds.NavigationBack, "Navigate back", "Navigation",
+            "Return to the previous result location.", "Alt+Left"),
+            _ => { _navigationBar.GoBack(); return Task.CompletedTask; });
+        _commands.Register(new(CanopyCommandIds.NavigationForward, "Navigate forward", "Navigation",
+            "Move to the next result location.", "Alt+Right"),
+            _ => { _navigationBar.GoForward(); return Task.CompletedTask; });
+        _commands.Register(new("summary.copy", "Copy shareable summary", "Results",
+            "Copy a privacy-safe scan summary.", "Ctrl+Shift+C", ["clipboard"]),
+            _ => { OnCopySummary(this, new RoutedEventArgs()); return Task.CompletedTask; },
+            () => _result is { Nodes.Length: > 0 });
+        _commandPalette.SetRegistry(_commands);
+    }
+
+    void OpenCommandPalette()
+    {
+        _commandPaletteOverlay.Visibility = Visibility.Visible;
+        _commandPalette.Open();
+    }
+
+    void CloseCommandPalette() => _commandPaletteOverlay.Visibility = Visibility.Collapsed;
+
+    void OnCommandPaletteCloseRequested() => CloseCommandPalette();
+
+    void OnCommandPaletteBackdrop(object sender, MouseButtonEventArgs e)
+    {
+        if (ReferenceEquals(e.OriginalSource, _commandPaletteOverlay)) CloseCommandPalette();
     }
 
     void OnScreenshotPrivacyChanged(object sender, RoutedEventArgs e)
@@ -323,6 +366,19 @@ public partial class MainWindow : FluentWindow
 
     void OnWindowNavigationKeyDown(object sender, KeyEventArgs e)
     {
+        if (_commandPaletteOverlay.Visibility == Visibility.Visible && e.Key == Key.Escape)
+        {
+            CloseCommandPalette();
+            e.Handled = true;
+            return;
+        }
+        string? shortcut = ShortcutFrom(e);
+        if (shortcut is not null && _commands.FindCommandByShortcut(shortcut) is string commandId)
+        {
+            _ = _commands.ExecuteAsync(commandId);
+            e.Handled = true;
+            return;
+        }
         if ((Keyboard.Modifiers & ModifierKeys.Alt) == 0) return;
         bool handled = e.SystemKey switch
         {
@@ -331,6 +387,30 @@ public partial class MainWindow : FluentWindow
             _ => false,
         };
         if (handled) e.Handled = true;
+    }
+
+    static string? ShortcutFrom(KeyEventArgs e)
+    {
+        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+        string keyName = key switch
+        {
+            Key.Return => "Enter",
+            >= Key.A and <= Key.Z => key.ToString(),
+            >= Key.D0 and <= Key.D9 => key.ToString()[1..],
+            >= Key.F1 and <= Key.F12 => key.ToString(),
+            Key.Left or Key.Right or Key.Up or Key.Down or Key.Enter or Key.Escape or Key.Delete or Key.Space => key.ToString(),
+            _ => string.Empty,
+        };
+        if (keyName.Length == 0) return null;
+        var parts = new List<string>(5);
+        ModifierKeys modifiers = Keyboard.Modifiers;
+        if (modifiers.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");
+        if (modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
+        if (modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
+        if (modifiers.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
+        if (parts.Count == 0) return null;
+        parts.Add(keyName);
+        return string.Join('+', parts);
     }
 
     async Task<bool> DisplayResultAsync(ScanResultManaged result, int generation,
