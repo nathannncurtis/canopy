@@ -35,6 +35,7 @@ public partial class MainWindow : FluentWindow
     readonly ShortcutOverrideStore _shortcutStore = new(AppDataPaths.ShortcutOverrides);
     readonly HashSet<string> _dynamicCommandIds = new(StringComparer.OrdinalIgnoreCase);
     readonly WorkspaceLayoutStore _workspaceLayoutStore = new(AppDataPaths.WorkspaceLayout);
+    readonly TreemapPresentationStore _treemapPresentationStore = new(AppDataPaths.TreemapPresentation);
     WorkspaceLayoutState _workspaceLayout = new();
     WorkspaceLayoutRuntimeState _workspaceRuntime = new();
     Window? _detachedTreemapWindow;
@@ -75,6 +76,7 @@ public partial class MainWindow : FluentWindow
         _treemap = new Treemap();
         _treemapHost.Child = _treemap;
         _treemap.PathChanged += OnTreemapPathChanged;
+        _treemap.LegendChanged += OnTreemapLegendChanged;
         ApplyAppearancePreferences(App.CurrentAppearance);
     }
 
@@ -257,7 +259,24 @@ public partial class MainWindow : FluentWindow
             Logger.Error("could not load shortcut settings", ex);
             _statCurrent.Text = $"Shortcut settings were not loaded: {ex.Message}";
         }
+        TreemapPresentationPreferences presentation = await _treemapPresentationStore.LoadAsync();
+        _treemapPresentationBar.Apply(presentation);
+        if (_treemap is not null) _treemap.Presentation = presentation;
     }
+
+    async void OnTreemapPresentationChanged(TreemapPresentationPreferences preferences)
+    {
+        if (_treemap is not null) _treemap.Presentation = preferences;
+        try { await _treemapPresentationStore.SaveAsync(preferences); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        { Logger.Error("could not save treemap presentation settings", ex); }
+    }
+
+    void OnTreemapResetRequested() => _treemap?.ResetViewport();
+
+    void OnTreemapLegendChanged(IReadOnlyList<TreemapLegendEntry> entries) =>
+        _treemapPresentationBar.SetLegend(entries,
+            AppearancePreferenceRules.TreemapColors(App.CurrentAppearance.Palette));
 
     async void OnScan(object sender, RoutedEventArgs e)
     {

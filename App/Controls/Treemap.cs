@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -16,6 +17,11 @@ public sealed class Treemap : Panel
     readonly Stack<uint> _navStack = new();
     readonly Dictionary<GeometryCacheKey, GeometryCacheEntry> _geometryCache = [];
     const int MaximumGeometryCacheEntries = 128;
+    TreemapPresentationPreferences _presentation = new();
+    TreemapViewport _viewport = TreemapViewport.Fitted;
+    Point? _panStart;
+    (ulong Files, ulong Directories)[] _descendantCounts = [];
+    public ulong DescendantCountWork { get; private set; }
 
     /// <summary>Diagnostic counter used to verify that unchanged layouts reuse geometry.</summary>
     public ulong LayoutComputationCount { get; private set; }
@@ -34,8 +40,14 @@ public sealed class Treemap : Panel
         set { if (_paletteMode == value) return; _paletteMode = value; RefreshChildren(); InvalidateVisual(); }
     }
     public bool AnimationsEnabled { get; set; } = true;
+    public TreemapPresentationPreferences Presentation
+    {
+        get => _presentation;
+        set { _presentation = value ?? new(); RefreshChildren(); InvalidateVisual(); }
+    }
 
     public event Action<IReadOnlyList<string>>? PathChanged;
+    public event Action<IReadOnlyList<TreemapLegendEntry>>? LegendChanged;
 
     static Treemap()
     {
@@ -46,7 +58,10 @@ public sealed class Treemap : Panel
     public void SetRoot(ScanResultManaged result, uint rootIndex)
     {
         if (!ReferenceEquals(_result, result))
+        {
             _geometryCache.Clear();
+            BuildDescendantCounts(result);
+        }
         _result    = result;
         _rootIndex = rootIndex;
         _navStack.Clear();
@@ -89,6 +104,15 @@ public sealed class Treemap : Panel
         }
 
         _currentChildren = children;
+        IReadOnlyList<TreemapLegendEntry> legend = Presentation.Colors switch
+        {
+            TreemapColorMode.Extension => TreemapPresentationRules.Legend(children.Select(view =>
+                (view.IsDir ? "(directory)" : TreemapPresentationRules.ExtensionKey(view.Name), view.Size)), StandardPalette.Length),
+            TreemapColorMode.TopLevelDirectory => TreemapPresentationRules.Legend(children.Select(view =>
+                (TopLevelKey(view.Index), view.Size)), StandardPalette.Length),
+            _ => [],
+        };
+        LegendChanged?.Invoke(legend);
     }
 
     Border MakeTile(SizeNodeView view, int pos)
@@ -101,7 +125,18 @@ public sealed class Treemap : Panel
             TreemapPalette.Monochrome => MonochromePalette,
             _ => StandardPalette,
         };
-        var brush = palette[pos % palette.Length];
+        string colorKey = Presentation.Colors switch
+        {
+            TreemapColorMode.Extension => view.IsDir ? "(directory)" : TreemapPresentationRules.ExtensionKey(view.Name),
+            TreemapColorMode.TopLevelDirectory => TopLevelKey(view.Index),
+            _ => pos.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        };
+        int colorIndex = Presentation.Colors == TreemapColorMode.SiblingOrder ? pos % palette.Length :
+            TreemapPresentationRules.StableBucket(colorKey, palette.Length);
+        var brush = palette[colorIndex];
+        double percentage = view.ParentSize == 0 ? 0 : view.Size * 100d / view.ParentSize;
+        string path = BuildPath(view.Index);
+        (ulong files, ulong dirs) = DescendantCounts(view.Index);
         var border = new Border
         {
             Background      = brush,
@@ -109,11 +144,13 @@ public sealed class Treemap : Panel
             BorderThickness = new Thickness(1),
             CornerRadius    = new CornerRadius(2),
             Tag             = view,
-            ToolTip         = $"{view.Name}\n{Helpers.SizeFormatter.FormatBytes(view.Size)}",
+            ToolTip         = $"{path}\nLogical: {Helpers.SizeFormatter.FormatBytes(view.Size)}\nAllocated: unavailable\n" +
+                              $"Parent share: {percentage:F2}%\n{files:N0} files, {dirs:N0} folders\n" +
+                              $"Extension: {(view.IsDir ? "(directory)" : TreemapPresentationRules.ExtensionKey(view.Name))}",
             Cursor          = view.IsDir ? Cursors.Hand : Cursors.Arrow,
             Child           = new TextBlock
             {
-                Text              = view.Name,
+                Text              = TreemapPresentationRules.Label(view.Name, view.Size, percentage, Presentation.Labels),
                 Foreground        = Brushes.White,
                 FontSize          = 11,
                 Padding           = new Thickness(4, 2, 4, 2),
@@ -121,6 +158,10 @@ public sealed class Treemap : Panel
                 VerticalAlignment = VerticalAlignment.Top,
             },
         };
+        ToolTipService.SetInitialShowDelay(border, 400);
+        ToolTipService.SetShowDuration(border, 20_000);
+        AutomationProperties.SetName(border, $"{view.Name}, {percentage:F1} percent of parent");
+        AutomationProperties.SetHelpText(border, border.ToolTip?.ToString() ?? string.Empty);
 
         if (view.IsDir)
             border.MouseLeftButtonDown += OnTileClick;
@@ -181,10 +222,26 @@ public sealed class Treemap : Panel
 
         IReadOnlyList<Rect> rects = GetOrCreateGeometry(_currentChildren, finalSize);
         for (int i = 0; i < Children.Count && i < rects.Count; i++)
+        {
             Children[i].Arrange(rects[i]);
+            if (Children[i] is Border { Child: TextBlock label })
+                label.Visibility = Presentation.Labels != TreemapLabelMode.Hidden &&
+                    rects[i].Width * rects[i].Height >= Presentation.MinimumLabelArea
+                    ? Visibility.Visible : Visibility.Collapsed;
+        }
 
         return finalSize;
     }
+
+    public Treemap()
+    {
+        Focusable = true; ClipToBounds = true;
+        MouseWheel += OnMouseWheel; MouseDown += OnViewportMouseDown; MouseMove += OnViewportMouseMove;
+        MouseUp += (_, _) => { _panStart = null; ReleaseMouseCapture(); };
+        KeyDown += OnViewportKeyDown;
+    }
+
+    public void ResetViewport() { _viewport = TreemapViewport.Fitted; ApplyViewport(); }
 
     void AnimateTransition()
     {
@@ -200,6 +257,71 @@ public sealed class Treemap : Panel
     static Brush[] BrushesFrom(TreemapPalette palette) => AppearancePreferenceRules.TreemapColors(palette)
         .Select(value => (Brush)new SolidColorBrush(Color.FromArgb((byte)(value >> 24),
             (byte)(value >> 16), (byte)(value >> 8), (byte)value))).ToArray();
+
+    void OnMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        Point point = e.GetPosition(this);
+        _viewport = _viewport.Zoom(e.Delta > 0 ? 1.2 : 1 / 1.2, point.X, point.Y, ActualWidth, ActualHeight);
+        ApplyViewport(); e.Handled = true;
+    }
+    void OnViewportMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        Focus();
+        if (e.ChangedButton == MouseButton.Middle) { _panStart = e.GetPosition(this); CaptureMouse(); e.Handled = true; }
+    }
+    void OnViewportMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_panStart is not Point prior || e.MiddleButton != MouseButtonState.Pressed) return;
+        Point current = e.GetPosition(this);
+        _viewport = _viewport.Pan(current.X - prior.X, current.Y - prior.Y, ActualWidth, ActualHeight);
+        _panStart = current; ApplyViewport(); e.Handled = true;
+    }
+    void OnViewportKeyDown(object sender, KeyEventArgs e)
+    {
+        const double step = 30;
+        if (e.Key is Key.D0 or Key.NumPad0) ResetViewport();
+        else if (e.Key is Key.Add or Key.OemPlus) _viewport = _viewport.Zoom(1.2, ActualWidth / 2, ActualHeight / 2, ActualWidth, ActualHeight);
+        else if (e.Key is Key.Subtract or Key.OemMinus) _viewport = _viewport.Zoom(1 / 1.2, ActualWidth / 2, ActualHeight / 2, ActualWidth, ActualHeight);
+        else if (e.Key == Key.Left) _viewport = _viewport.Pan(step, 0, ActualWidth, ActualHeight);
+        else if (e.Key == Key.Right) _viewport = _viewport.Pan(-step, 0, ActualWidth, ActualHeight);
+        else if (e.Key == Key.Up) _viewport = _viewport.Pan(0, step, ActualWidth, ActualHeight);
+        else if (e.Key == Key.Down) _viewport = _viewport.Pan(0, -step, ActualWidth, ActualHeight);
+        else return;
+        ApplyViewport(); e.Handled = true;
+    }
+    void ApplyViewport() => RenderTransform = new MatrixTransform(_viewport.Scale, 0, 0, _viewport.Scale, _viewport.X, _viewport.Y);
+
+    string BuildPath(uint index)
+    {
+        if (_result is null) return string.Empty;
+        var parts = new Stack<string>(); var seen = new HashSet<uint>();
+        while (index != uint.MaxValue && index < _result.Nodes.Length && seen.Add(index))
+        { parts.Push(_result.GetName(index)); index = _result.Nodes[index].Parent; }
+        string path = parts.Count > 0 ? parts.Pop() : string.Empty;
+        while (parts.TryPop(out string? part)) path = System.IO.Path.Combine(path, part);
+        return path;
+    }
+    string TopLevelKey(uint index)
+    {
+        if (_result is null) return "(unknown)";
+        uint current = index;
+        while (current < _result.Nodes.Length)
+        {
+            uint parent = _result.Nodes[current].Parent;
+            if (parent is uint.MaxValue or 0) break;
+            current = parent;
+        }
+        return current < _result.Nodes.Length ? _result.GetName(current) : "(unknown)";
+    }
+    (ulong Files, ulong Directories) DescendantCounts(uint root)
+    {
+        return root < _descendantCounts.Length ? _descendantCounts[root] : default;
+    }
+    void BuildDescendantCounts(ScanResultManaged result)
+    {
+        TreemapHierarchyMetrics metrics = TreemapHierarchyMetrics.Calculate(result);
+        _descendantCounts = metrics.Counts.ToArray(); DescendantCountWork = metrics.WorkItems;
+    }
 
     IReadOnlyList<Rect> GetOrCreateGeometry(List<SizeNodeView> nodes, Size finalSize)
     {

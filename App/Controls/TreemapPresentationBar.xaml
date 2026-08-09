@@ -1,0 +1,18 @@
+<UserControl x:Class="SizeMonitor.Controls.TreemapPresentationBar" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <DockPanel Margin="12,0,12,6">
+    <Button DockPanel.Dock="Right" Content="Reset view" Click="OnReset" ToolTip="Reset treemap zoom and pan (0)" AutomationProperties.Name="Reset treemap view" />
+    <StackPanel Orientation="Horizontal">
+      <TextBlock Text="Labels" VerticalAlignment="Center" Margin="0,0,5,0" />
+      <ComboBox x:Name="_labels" Width="155" SelectionChanged="OnChanged" AutomationProperties.Name="Treemap label content">
+        <ComboBoxItem Content="Name"/><ComboBoxItem Content="Name and size"/><ComboBoxItem Content="Name, size, percent"/><ComboBoxItem Content="Hidden"/>
+      </ComboBox>
+      <TextBlock Text="Color by" VerticalAlignment="Center" Margin="12,0,5,0" />
+      <ComboBox x:Name="_colors" Width="145" SelectionChanged="OnChanged" AutomationProperties.Name="Treemap color scheme">
+        <ComboBoxItem Content="Sibling order"/><ComboBoxItem Content="Extension"/><ComboBoxItem Content="Top-level folder"/>
+      </ComboBox>
+      <ItemsControl x:Name="_legend" Margin="14,0,0,0" VerticalAlignment="Center" AutomationProperties.Name="Treemap color legend">
+        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+      </ItemsControl>
+    </StackPanel>
+  </DockPanel>
+</UserControl>
