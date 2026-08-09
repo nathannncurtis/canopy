@@ -145,6 +145,43 @@ public partial class CleanupRulesView : UserControl
         StartPreview(result, rules);
     }
 
+    async void OnBuiltInPreview(object sender, RoutedEventArgs e)
+    {
+        ScanResultManaged? result = _result;
+        if (result is null) { _status.Text = "Run a scan before previewing built-in cleanup categories."; return; }
+        CancelPreview(); _preview = null; _navigator = null; _items.ItemsSource = null; UpdateNavigatorButtons();
+        var cancellation = new CancellationTokenSource(); _previewCancellation = cancellation;
+        CancellationToken token = cancellation.Token; long generation = Volatile.Read(ref _generation);
+        _status.Text = $"Classifying {result.Nodes.Length:N0} items with bounded built-in cleanup rules…";
+        try
+        {
+            ConsumerCleanupPreview builtIn = await Task.Run(() =>
+                ConsumerCleanupClassifier.ClassifyScanResult(result, DateTimeOffset.UtcNow,
+                    cancellationToken: token), token);
+            if (generation != Volatile.Read(ref _generation) || token.IsCancellationRequested) return;
+            CleanupPreviewItem[] items = builtIn.Findings.Where(item => item.NodeIndex.HasValue)
+                .Select(item => new CleanupPreviewItem(item.NodeIndex!.Value, item.Path, item.Size, item.Risk,
+                    [item.Category.ToString()], [$"{item.Rationale} Recommended handling: {item.Disposition}."]))
+                .ToArray();
+            _preview = new(items, builtIn.TotalBytes,
+                items.Count(item => item.Risk == CleanupRisk.Low),
+                items.Count(item => item.Risk == CleanupRisk.Medium),
+                items.Count(item => item.Risk == CleanupRisk.High));
+            _navigator = new CleanupFindingNavigator(_preview); ApplyFilters(); UpdateNavigatorButtons();
+            _status.Text += $" {builtIn.SafeToCleanCount:N0} safe-to-clean, {builtIn.ReviewRequiredCount:N0} review, " +
+                $"{builtIn.UseSystemToolCount:N0} system-tool recommendations. Nothing was changed. " +
+                string.Join(" ", builtIn.Limitations);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is ArgumentException or InvalidDataException or OverflowException)
+        { if (generation == Volatile.Read(ref _generation)) _status.Text = $"Built-in cleanup preview failed: {ex.Message}"; }
+        finally
+        {
+            if (ReferenceEquals(_previewCancellation, cancellation)) _previewCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
     void StartPreview(ScanResultManaged result, CleanupRuleSet rules)
     {
         CancelPreview();
