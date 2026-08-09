@@ -15,6 +15,7 @@ namespace SizeMonitor;
 public partial class MainWindow : FluentWindow
 {
     MultiScanSession?        _multiSession;
+    IsolatedMultiScanSession? _isolatedSession;
     CancellationTokenSource? _cts;
     ScanResultManaged?       _result;
     ScanResultManaged?       _previousResult;
@@ -28,6 +29,7 @@ public partial class MainWindow : FluentWindow
     LocationHistoryStore?    _locationHistory;
     ShellItemActionsMenu?    _shellActionsMenu;
     readonly ScanCompletionNotificationService _notificationService = new();
+    readonly WindowsShadowCopyService _shadowCopyService = new();
     readonly AppCommandRegistry _commands = new();
     readonly ShortcutOverrideStore _shortcutStore = new(AppDataPaths.ShortcutOverrides);
     readonly HashSet<string> _dynamicCommandIds = new(StringComparer.OrdinalIgnoreCase);
@@ -282,8 +284,9 @@ public partial class MainWindow : FluentWindow
         Stopwatch scanClock = Stopwatch.StartNew();
         _scanClock = scanClock;
         var targetProgress = new Dictionary<string, ScanProgress>(StringComparer.OrdinalIgnoreCase);
+        var snapshotLeases = new List<ShadowCopyLease>();
 
-        var progress = new Progress<TargetScanProgress>(p =>
+        IProgress<TargetScanProgress> progress = new Progress<TargetScanProgress>(p =>
         {
             targetProgress[p.Path] = p.Current;
             ulong files = SumSaturating(targetProgress.Values.Select(value => value.FilesVisited));
@@ -307,11 +310,64 @@ public partial class MainWindow : FluentWindow
 
         try
         {
-            _multiSession = new MultiScanSession(Math.Min(paths.Length, Math.Max(1, Environment.ProcessorCount / 2)));
-            IReadOnlyList<TargetScanOutcome> outcomes =
-                await _multiSession.ScanOutcomesAsync(paths, progress, _cts.Token, scanOptions);
+            string[] scanPaths = paths;
+            var displayPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            bool snapshotScan = _consistentSnapshot.IsChecked == true;
+            if (snapshotScan)
+            {
+                _statCurrent.Text = "Creating consistent Windows shadow copy…";
+                var shadows = new Dictionary<string, ShadowCopyInfo>(StringComparer.OrdinalIgnoreCase);
+                scanPaths = new string[paths.Length];
+                for (int index = 0; index < paths.Length; index++)
+                {
+                    string root = WindowsShadowCopyService.GetLocalDriveRoot(paths[index]);
+                    if (!shadows.TryGetValue(root, out ShadowCopyInfo? shadow))
+                    {
+                        ShadowCopyLease lease = await _shadowCopyService.CreateSessionSnapshotAsync(root, _cts.Token);
+                        snapshotLeases.Add(lease);
+                        shadow = lease.Snapshot;
+                        shadows[root] = shadow;
+                    }
+                    scanPaths[index] = WindowsShadowCopyService.ResolvePath(shadow, paths[index]);
+                    displayPaths[scanPaths[index]] = paths[index];
+                }
+                scanOptions = (scanOptions ?? new ScanOptions()) with { ForceDirectoryScanner = true };
+                _statCurrent.Text = $"Scanning {shadows.Count:N0} consistent volume snapshot(s)…";
+            }
+            int concurrency = Math.Min(scanPaths.Length, Math.Max(1, Environment.ProcessorCount / 2));
+            string workerPath = Path.Combine(AppContext.BaseDirectory, "canopy-cli.exe");
+            IReadOnlyList<TargetScanOutcome> outcomes;
+            if (File.Exists(workerPath))
+            {
+                _isolatedSession = new IsolatedMultiScanSession(workerPath, concurrency);
+                _btnPause.IsEnabled = false;
+                _statCurrent.Text = "Scanning in isolated worker processes; native failures cannot terminate Canopy.";
+                var partialTargets = new List<TargetScanResult>();
+                var isolatedProgress = new Progress<IsolatedTargetUpdate>(update =>
+                {
+                    progress.Report(new(update.Path, update.Progress, update.CompletedTargets, update.TotalTargets));
+                    if (update.CompletedOutcome is { Succeeded: true, Result: not null } completed)
+                    {
+                        string display = displayPaths.TryGetValue(completed.Path, out string? mapped) ? mapped : completed.Path;
+                        partialTargets.Add(new(display, completed.Scanner, completed.Result));
+                        ScanResultManaged partial = ScanResultCombiner.CombineTargets(partialTargets);
+                        _diskUsageSummaryView.SetResult(partial,
+                            limitations: [$"Partial preview: {partialTargets.Count:N0} of {update.TotalTargets:N0} targets completed. Final results are not committed yet."]);
+                        _statSize.Text = $"Partial: {SizeFormatter.FormatBytes(partial.TotalBytes)}";
+                    }
+                });
+                outcomes = await _isolatedSession.ScanOutcomesAsync(scanPaths, isolatedProgress, _cts.Token, scanOptions);
+            }
+            else
+            {
+                _multiSession = new MultiScanSession(concurrency);
+                _statCurrent.Text = "Isolation worker unavailable; using compatible in-process scanning.";
+                outcomes = await _multiSession.ScanOutcomesAsync(scanPaths, progress, _cts.Token, scanOptions);
+            }
             TargetScanResult[] targetResults = outcomes.Where(outcome => outcome.Succeeded)
-                .Select(outcome => new TargetScanResult(outcome.Path, outcome.Scanner, outcome.Result!))
+                .Select(outcome => new TargetScanResult(
+                    displayPaths.TryGetValue(outcome.Path, out string? display) ? display : outcome.Path,
+                    outcome.Scanner, outcome.Result!))
                 .ToArray();
             TargetScanOutcome[] failures = outcomes.Where(outcome => !outcome.Succeeded).ToArray();
             if (targetResults.Length == 0)
@@ -320,9 +376,10 @@ public partial class MainWindow : FluentWindow
             ScanResultManaged result = ScanResultCombiner.CombineTargets(targetResults);
             if (generation == _resultGeneration)
             {
-                string[] limitations = failures.Length == 0
-                    ? []
-                    : [$"{failures.Length:N0} of {outcomes.Count:N0} scan targets could not be read"];
+                var limitationList = new List<string>();
+                if (snapshotScan) limitationList.Add("Scanned from a consistent Windows VSS snapshot; the snapshot may remain under system retention policy.");
+                if (failures.Length > 0) limitationList.Add($"{failures.Length:N0} of {outcomes.Count:N0} scan targets could not be read");
+                string[] limitations = limitationList.ToArray();
                 await OnScanCompleteAsync(result, targetResults, generation, limitations);
                 if (_locationHistory is not null)
                 {
@@ -366,6 +423,7 @@ public partial class MainWindow : FluentWindow
         }
         catch (OperationCanceledException)
         {
+            _diskUsageSummaryView.SetResult(_result, limitations: _summaryLimitations);
             _statSize.Text          = "Cancelled";
             _statFiles.Text         = "";
             _statTime.Text          = "";
@@ -411,10 +469,22 @@ public partial class MainWindow : FluentWindow
             if (_multiSession is not null)
                 await _multiSession.DisposeAsync();
             _multiSession = null;
+            if (_isolatedSession is not null)
+                await _isolatedSession.DisposeAsync();
+            _isolatedSession = null;
             _cts?.Dispose();
             _cts = null;
             _scanClock?.Stop();
             _scanClock = null;
+            foreach (ShadowCopyLease lease in snapshotLeases)
+            {
+                try { await lease.DisposeAsync(); }
+                catch (ShadowCopyException cleanupError)
+                {
+                    Logger.Error("could not release temporary VSS snapshot", cleanupError);
+                    _statCurrent.Text = cleanupError.Message;
+                }
+            }
         }
     }
 
@@ -445,6 +515,50 @@ public partial class MainWindow : FluentWindow
         _locationHistoryView.RefreshLocations();
         RegisterFavoriteCommands();
         _statCurrent.Text = pinned ? $"Removed {path} from favorites." : $"Added {path} to favorites.";
+    }
+
+    void OnShadowCopiesFocused(object sender, RoutedEventArgs e) =>
+        _shadowCopiesView.SetLivePath(ParsePaths(_pathBox.Text).FirstOrDefault());
+
+    async void OnShadowScanRequested(ShadowCopyInfo shadow, string shadowPath, bool compareWithLive)
+    {
+        if (_scanInProgress) return;
+        string livePath = ParsePaths(_pathBox.Text).FirstOrDefault() ?? shadow.DriveRoot ?? shadow.VolumeName;
+        int generation = ++_resultGeneration;
+        _scanInProgress = true;
+        _btnScan.IsEnabled = false; _btnPause.IsEnabled = true; _btnCancel.IsEnabled = true;
+        _scanProgress.Visibility = Visibility.Visible; _scanProgress.IsIndeterminate = true;
+        _statCurrent.Text = $"Scanning read-only snapshot from {shadow.CreatedUtc.LocalDateTime:g}…";
+        _cts = new CancellationTokenSource();
+        _multiSession = new MultiScanSession(1);
+        try
+        {
+            IReadOnlyList<TargetScanOutcome> outcomes = await _multiSession.ScanOutcomesAsync(
+                [shadowPath], cancellationToken: _cts.Token,
+                options: new ScanOptions { ForceDirectoryScanner = true });
+            TargetScanOutcome outcome = outcomes.Single();
+            if (!outcome.Succeeded)
+                throw outcome.Error ?? new IOException("The selected shadow copy could not be scanned.");
+            var target = new TargetScanResult(livePath, outcome.Scanner, outcome.Result!);
+            await OnScanCompleteAsync(outcome.Result!, [target], generation,
+                [$"Read-only Windows shadow copy created {shadow.CreatedUtc.LocalDateTime:g}; no snapshot was modified."]);
+            if (compareWithLive && _previousResult is not null) SelectTab("Compare");
+        }
+        catch (OperationCanceledException) { _statCurrent.Text = "Shadow-copy scan cancelled."; }
+        catch (Exception ex) when (ex is ShadowCopyException or IOException or UnauthorizedAccessException
+                                      or InvalidOperationException or ArgumentException)
+        {
+            Logger.Error("shadow-copy scan failed", ex);
+            _statCurrent.Text = $"Could not scan the shadow copy: {ex.Message}";
+        }
+        finally
+        {
+            _scanInProgress = false;
+            _btnScan.IsEnabled = true; _btnPause.IsEnabled = false; _btnCancel.IsEnabled = false;
+            _scanProgress.Visibility = Visibility.Collapsed;
+            if (_multiSession is not null) await _multiSession.DisposeAsync();
+            _multiSession = null; _cts?.Dispose(); _cts = null;
+        }
     }
 
     void RegisterFavoriteCommands()
@@ -517,6 +631,7 @@ public partial class MainWindow : FluentWindow
     void OnCancel(object sender, RoutedEventArgs e)
     {
         _multiSession?.Cancel();
+        _isolatedSession?.Cancel();
         _cts?.Cancel();
     }
 

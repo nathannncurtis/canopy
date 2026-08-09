@@ -112,6 +112,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Excluded paths/globs" VerticalAlignment="Center" />
@@ -141,6 +142,9 @@
                     <CheckBox x:Name="_excludeTemporary" Content="Exclude temporary" Margin="0,0,16,0" />
                     <CheckBox x:Name="_excludeReparse" Content="Exclude reparse points" />
                 </WrapPanel>
+                <CheckBox Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="4" x:Name="_consistentSnapshot"
+                          Content="Use a consistent VSS snapshot (local drives; requires administrator)"
+                          Margin="0,6,0,0" ToolTip="Creates a session snapshot so locked and changing files are scanned consistently. Canopy does not delete snapshots." />
             </Grid>
         </Expander>
 
@@ -201,6 +205,9 @@
           <TabItem Header="Locations">
             <controls:LocationHistoryView x:Name="_locationHistoryView"
                                           PathActivated="OnHistoryPathActivated" />
+          </TabItem>
+          <TabItem Header="Previous Versions" GotFocus="OnShadowCopiesFocused">
+            <controls:ShadowCopiesView x:Name="_shadowCopiesView" ScanRequested="OnShadowScanRequested" />
           </TabItem>
           <TabItem Header="Monitoring">
             <controls:StorageMonitoringView />
