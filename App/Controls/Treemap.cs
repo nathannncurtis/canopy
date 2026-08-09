@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using SizeMonitor.Interop;
 
 namespace SizeMonitor.Controls;
@@ -20,23 +21,25 @@ public sealed class Treemap : Panel
     public ulong LayoutComputationCount { get; private set; }
 
     // 8 accent colors cycling by position.
-    static readonly Brush[] Palette =
-    [
-        new SolidColorBrush(Color.FromRgb(0x4C, 0x9D, 0xFF)),
-        new SolidColorBrush(Color.FromRgb(0x57, 0xB8, 0x9A)),
-        new SolidColorBrush(Color.FromRgb(0xE0, 0x72, 0x72)),
-        new SolidColorBrush(Color.FromRgb(0xC7, 0x97, 0x3E)),
-        new SolidColorBrush(Color.FromRgb(0x9B, 0x72, 0xCF)),
-        new SolidColorBrush(Color.FromRgb(0x4F, 0xB3, 0xD4)),
-        new SolidColorBrush(Color.FromRgb(0xD4, 0x8F, 0x4B)),
-        new SolidColorBrush(Color.FromRgb(0x6B, 0xB5, 0x6B)),
-    ];
+    static readonly Brush[] StandardPalette = BrushesFrom(TreemapPalette.Standard);
+    static readonly Brush[] DeuteranopiaPalette = BrushesFrom(TreemapPalette.DeuteranopiaSafe);
+    static readonly Brush[] ProtanopiaPalette = BrushesFrom(TreemapPalette.ProtanopiaSafe);
+    static readonly Brush[] TritanopiaPalette = BrushesFrom(TreemapPalette.TritanopiaSafe);
+    static readonly Brush[] MonochromePalette = BrushesFrom(TreemapPalette.Monochrome);
+
+    TreemapPalette _paletteMode;
+    public TreemapPalette PaletteMode
+    {
+        get => _paletteMode;
+        set { if (_paletteMode == value) return; _paletteMode = value; RefreshChildren(); InvalidateVisual(); }
+    }
+    public bool AnimationsEnabled { get; set; } = true;
 
     public event Action<IReadOnlyList<string>>? PathChanged;
 
     static Treemap()
     {
-        foreach (var b in Palette)
+        foreach (var b in new[] { StandardPalette, DeuteranopiaPalette, ProtanopiaPalette, TritanopiaPalette, MonochromePalette }.SelectMany(value => value))
             ((SolidColorBrush)b).Freeze();
     }
 
@@ -48,6 +51,7 @@ public sealed class Treemap : Panel
         _rootIndex = rootIndex;
         _navStack.Clear();
         RefreshChildren();
+        AnimateTransition();
         InvalidateMeasure();
         InvalidateArrange();
     }
@@ -89,7 +93,15 @@ public sealed class Treemap : Panel
 
     Border MakeTile(SizeNodeView view, int pos)
     {
-        var brush = Palette[pos % Palette.Length];
+        Brush[] palette = PaletteMode switch
+        {
+            TreemapPalette.DeuteranopiaSafe => DeuteranopiaPalette,
+            TreemapPalette.ProtanopiaSafe => ProtanopiaPalette,
+            TreemapPalette.TritanopiaSafe => TritanopiaPalette,
+            TreemapPalette.Monochrome => MonochromePalette,
+            _ => StandardPalette,
+        };
+        var brush = palette[pos % palette.Length];
         var border = new Border
         {
             Background      = brush,
@@ -124,6 +136,7 @@ public sealed class Treemap : Panel
             _navStack.Push(_rootIndex);
             _rootIndex = view.Index;
             RefreshChildren();
+            AnimateTransition();
             InvalidateArrange();
             EmitPath();
         }
@@ -135,6 +148,7 @@ public sealed class Treemap : Panel
         {
             _rootIndex = _navStack.Pop();
             RefreshChildren();
+            AnimateTransition();
             InvalidateArrange();
             EmitPath();
         }
@@ -171,6 +185,21 @@ public sealed class Treemap : Panel
 
         return finalSize;
     }
+
+    void AnimateTransition()
+    {
+        BeginAnimation(OpacityProperty, null);
+        Opacity = 1;
+        TimeSpan duration = AppearancePreferenceRules.TreemapTransitionDuration(
+            AnimationsEnabled ? MotionPreference.Full : MotionPreference.Reduced);
+        if (duration == TimeSpan.Zero) return;
+        BeginAnimation(OpacityProperty, new DoubleAnimation(0.55, 1, duration)
+        { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } });
+    }
+
+    static Brush[] BrushesFrom(TreemapPalette palette) => AppearancePreferenceRules.TreemapColors(palette)
+        .Select(value => (Brush)new SolidColorBrush(Color.FromArgb((byte)(value >> 24),
+            (byte)(value >> 16), (byte)(value >> 8), (byte)value))).ToArray();
 
     IReadOnlyList<Rect> GetOrCreateGeometry(List<SizeNodeView> nodes, Size finalSize)
     {

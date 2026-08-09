@@ -55,6 +55,8 @@ public partial class MainWindow : FluentWindow
         AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(OnWindowNavigationKeyDown));
         Loaded += OnLoaded;
         Closing += OnWindowClosing;
+        App.AppearanceChanged += ApplyAppearancePreferences;
+        Closed += (_, _) => App.AppearanceChanged -= ApplyAppearancePreferences;
     }
 
     void SetupControls()
@@ -70,6 +72,18 @@ public partial class MainWindow : FluentWindow
         _treemap = new Treemap();
         _treemapHost.Child = _treemap;
         _treemap.PathChanged += OnTreemapPathChanged;
+        ApplyAppearancePreferences(App.CurrentAppearance);
+    }
+
+    void OnAppearancePreferencesApplied(AppearancePreferences preferences) => App.UpdateAppearance(preferences);
+
+    void ApplyAppearancePreferences(AppearancePreferences preferences)
+    {
+        if (_treemap is not null)
+        {
+            _treemap.PaletteMode = preferences.Palette;
+            _treemap.AnimationsEnabled = preferences.Motion == MotionPreference.Full;
+        }
     }
 
     public void StartScanFromTray(string rootPath)

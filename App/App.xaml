@@ -1,6 +1,7 @@
 <Application x:Class="SizeMonitor.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sys="clr-namespace:System;assembly=System.Runtime"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
     <Application.Resources>
         <ResourceDictionary>
@@ -8,6 +9,22 @@
                 <ui:ThemesDictionary Theme="Dark" />
                 <ui:ControlsDictionary />
             </ResourceDictionary.MergedDictionaries>
+            <sys:Double x:Key="Canopy.FontSize">13</sys:Double>
+            <sys:Double x:Key="Canopy.TreeFontSize">13</sys:Double>
+            <sys:Double x:Key="Canopy.DialogFontSize">13</sys:Double>
+            <sys:Double x:Key="Canopy.TreeItemMinHeight">34</sys:Double>
+            <Thickness x:Key="Canopy.ControlPadding">10,6</Thickness>
+            <SolidColorBrush x:Key="Canopy.WindowBackgroundBrush" Color="#FF202020" />
+            <SolidColorBrush x:Key="Canopy.WindowForegroundBrush" Color="#FFF5F5F5" />
+            <Style TargetType="{x:Type Window}">
+                <Setter Property="FontSize" Value="{DynamicResource Canopy.DialogFontSize}" />
+                <Setter Property="Foreground" Value="{DynamicResource Canopy.WindowForegroundBrush}" />
+                <Setter Property="Background" Value="{DynamicResource Canopy.WindowBackgroundBrush}" />
+            </Style>
+            <Style TargetType="{x:Type UserControl}">
+                <Setter Property="FontSize" Value="{DynamicResource Canopy.FontSize}" />
+                <Setter Property="Foreground" Value="{DynamicResource Canopy.WindowForegroundBrush}" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

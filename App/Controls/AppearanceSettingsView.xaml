@@ -1,0 +1,19 @@
+<UserControl x:Class="SizeMonitor.Controls.AppearanceSettingsView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" AutomationProperties.Name="Appearance and accessibility settings">
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="18" MaxWidth="720" HorizontalAlignment="Left">
+      <TextBlock Text="Appearance and accessibility" FontSize="22" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level1" />
+      <TextBlock Margin="0,8,0,14" TextWrapping="Wrap" Text="Choose a theme, an accessible treemap palette, interface density, scale, and motion behavior. All controls remain reachable by keyboard." />
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="190" /><ColumnDefinition Width="240" /></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="Theme" VerticalAlignment="Center" /><ComboBox Grid.Row="0" Grid.Column="1" x:Name="_theme" SelectedIndex="0" Margin="0,4" AutomationProperties.Name="Application theme"><ComboBoxItem Content="Follow Windows" /><ComboBoxItem Content="Dark" /><ComboBoxItem Content="Light" /><ComboBoxItem Content="High contrast" /></ComboBox>
+        <TextBlock Grid.Row="1" Text="Treemap palette" VerticalAlignment="Center" /><ComboBox Grid.Row="1" Grid.Column="1" x:Name="_palette" SelectedIndex="0" Margin="0,4" AutomationProperties.Name="Treemap color palette"><ComboBoxItem Content="Standard" /><ComboBoxItem Content="Deuteranopia safe" /><ComboBoxItem Content="Protanopia safe" /><ComboBoxItem Content="Tritanopia safe" /><ComboBoxItem Content="Monochrome" /></ComboBox>
+        <TextBlock Grid.Row="2" Text="Interface density" VerticalAlignment="Center" /><ComboBox Grid.Row="2" Grid.Column="1" x:Name="_density" SelectedIndex="1" Margin="0,4" AutomationProperties.Name="Interface density"><ComboBoxItem Content="Compact" /><ComboBoxItem Content="Comfortable" /></ComboBox>
+        <TextBlock Grid.Row="3" Text="UI and font scale" VerticalAlignment="Center" /><Slider Grid.Row="3" Grid.Column="1" x:Name="_scale" Minimum="0.8" Maximum="1.5" Value="1" TickFrequency="0.1" IsSnapToTickEnabled="True" Margin="0,8" AutomationProperties.Name="UI and font scale" AutomationProperties.HelpText="Use arrow keys to adjust from 80 to 150 percent" />
+        <TextBlock Grid.Row="4" Text="Motion" VerticalAlignment="Center" /><ComboBox Grid.Row="4" Grid.Column="1" x:Name="_motion" SelectedIndex="0" Margin="0,4" AutomationProperties.Name="Animation preference"><ComboBoxItem Content="Smooth transitions" /><ComboBoxItem Content="Reduced motion" /></ComboBox>
+      </Grid>
+      <Button Content="Save and apply" Padding="14,5" Margin="0,14,0,0" HorizontalAlignment="Left" Click="OnSave" />
+      <TextBlock x:Name="_status" Margin="0,10,0,0" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
