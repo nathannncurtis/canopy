@@ -47,6 +47,7 @@ add_library(Canopy.Core SHARED
     src/dir_scanner.cpp
     src/node_pool.cpp
     src/tree_compactor.cpp
+    src/traversal_policy.cpp
     src/size_rollup.cpp
     src/cpu_features.cpp
     src/architecture_dispatch.cpp
@@ -159,3 +160,15 @@ if(MSVC)
     target_compile_options(scan_options_test PRIVATE /W4 /WX /utf-8)
 endif()
 add_test(NAME scan_options_contract COMMAND scan_options_test)
+
+add_executable(traversal_policy_test test/traversal_policy_test.cpp src/traversal_policy.cpp)
+target_include_directories(traversal_policy_test PRIVATE include src)
+target_link_libraries(traversal_policy_test PRIVATE Canopy.Core)
+add_custom_command(TARGET traversal_policy_test POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "$<TARGET_FILE:Canopy.Core>" "$<TARGET_FILE_DIR:traversal_policy_test>")
+target_compile_definitions(traversal_policy_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+if(MSVC)
+    target_compile_options(traversal_policy_test PRIVATE /W4 /WX /utf-8)
+endif()
+add_test(NAME traversal_policy_contract COMMAND traversal_policy_test)

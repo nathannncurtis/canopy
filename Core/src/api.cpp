@@ -77,7 +77,11 @@ ScanHandle WINAPI Smon_BeginScanEx(const wchar_t* path,
         SetLastError(ERROR_INVALID_PARAMETER);
         return nullptr;
     }
-    if (options && options->struct_size < sizeof(SmonScanOptions)) {
+    constexpr uint32_t legacy_options_size =
+        static_cast<uint32_t>(offsetof(SmonScanOptions, traversal_policy_version));
+    if (options && (options->struct_size < legacy_options_size ||
+                    (options->struct_size > legacy_options_size &&
+                     options->struct_size < sizeof(SmonScanOptions)))) {
         SetLastError(ERROR_INSUFFICIENT_BUFFER);
         return nullptr;
     }
@@ -102,10 +106,20 @@ ScanHandle WINAPI Smon_BeginScanEx(const wchar_t* path,
             SMON_OPTION_EXCLUDE_SYSTEM |
             SMON_OPTION_EXCLUDE_TEMPORARY |
             SMON_OPTION_EXCLUDE_REPARSE |
-            SMON_OPTION_FORCE_DIRECTORY_SCAN;
+            SMON_OPTION_FORCE_DIRECTORY_SCAN |
+            SMON_OPTION_INCLUDE_STREAMS |
+            SMON_OPTION_FOLLOW_REPARSE |
+            SMON_OPTION_ALLOW_CROSS_VOLUME;
         if ((options->flags & ~known_flags) != 0) {
             delete ctx;
             SetLastError(ERROR_INVALID_FLAGS);
+            return nullptr;
+        }
+        if (options->struct_size >= sizeof(SmonScanOptions) &&
+            ((options->traversal_policy_version != 0 &&
+              options->traversal_policy_version != 1) || options->reserved != 0)) {
+            delete ctx;
+            SetLastError(ERROR_INVALID_PARAMETER);
             return nullptr;
         }
         ctx->options.max_depth = options->max_depth == 0 ? UINT32_MAX : options->max_depth;
@@ -123,6 +137,17 @@ ScanHandle WINAPI Smon_BeginScanEx(const wchar_t* path,
             (options->flags & SMON_OPTION_EXCLUDE_REPARSE) == 0;
         ctx->options.force_directory_scanner =
             (options->flags & SMON_OPTION_FORCE_DIRECTORY_SCAN) != 0;
+        ctx->options.include_alternate_streams =
+            (options->flags & SMON_OPTION_INCLUDE_STREAMS) != 0;
+        ctx->options.follow_reparse_points =
+            (options->flags & SMON_OPTION_FOLLOW_REPARSE) != 0;
+        ctx->options.stay_on_volume =
+            (options->flags & SMON_OPTION_ALLOW_CROSS_VOLUME) == 0;
+        if (ctx->options.follow_reparse_points && !ctx->options.include_reparse_points) {
+            delete ctx;
+            SetLastError(ERROR_INVALID_FLAGS);
+            return nullptr;
+        }
         if (options->excluded_patterns)
             ctx->options.SetExcludedPatterns(options->excluded_patterns);
         if (options->excluded_extensions)

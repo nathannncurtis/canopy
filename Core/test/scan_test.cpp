@@ -1,6 +1,7 @@
 #include "../include/smon_api.h"
 #include <cstdio>
 #include <cwchar>
+#include <cstddef>
 
 static bool Check(bool condition, const wchar_t* message)
 {
@@ -77,6 +78,17 @@ int wmain(int argc, wchar_t* argv[])
                L"extended scan rejects a short options struct"))
         return 1;
 
+    SmonScanOptions legacy{};
+    legacy.struct_size = static_cast<uint32_t>(offsetof(SmonScanOptions, traversal_policy_version));
+    legacy.flags = SMON_OPTION_FORCE_DIRECTORY_SCAN;
+    legacy.worker_threads = 1;
+    ScanHandle legacy_options_handle = Smon_BeginScanEx(path, &legacy, nullptr, nullptr);
+    if (!Check(legacy_options_handle != nullptr, L"extended scan accepts the original options struct"))
+        return 1;
+    Smon_Cancel(legacy_options_handle);
+    Smon_Wait(legacy_options_handle, INFINITE);
+    Smon_FreeResult(legacy_options_handle);
+
     invalid = {};
     invalid.struct_size = sizeof(invalid);
     invalid.flags = 0x80000000u;
@@ -84,6 +96,18 @@ int wmain(int argc, wchar_t* argv[])
                GetLastError() == ERROR_INVALID_FLAGS,
                L"extended scan rejects unknown flags"))
         return 1;
+
+    invalid = {};
+    invalid.struct_size = sizeof(invalid);
+    invalid.traversal_policy_version = 2;
+    if (!Check(Smon_BeginScanEx(path, &invalid, nullptr, nullptr) == nullptr &&
+               GetLastError() == ERROR_INVALID_PARAMETER,
+               L"extended scan rejects an unknown traversal policy version")) return 1;
+    invalid.traversal_policy_version = 1;
+    invalid.reserved = 1;
+    if (!Check(Smon_BeginScanEx(path, &invalid, nullptr, nullptr) == nullptr &&
+               GetLastError() == ERROR_INVALID_PARAMETER,
+               L"extended scan rejects nonzero reserved fields")) return 1;
 
     invalid = {};
     invalid.struct_size = sizeof(invalid);

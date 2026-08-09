@@ -10,6 +10,9 @@ internal enum SmonScanOptionFlags : uint
     ExcludeTemporary = 0x00000004,
     ExcludeReparsePoints = 0x00000008,
     ForceDirectoryScanner = 0x00000010,
+    IncludeAlternateStreams = 0x00000020,
+    FollowReparsePoints = 0x00000040,
+    AllowCrossVolume = 0x00000080,
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -23,6 +26,8 @@ internal struct SmonScanOptionsNative
     public ulong MaximumFileSize;
     public IntPtr ExcludedPatterns;
     public IntPtr ExcludedExtensions;
+    public uint TraversalPolicyVersion;
+    public uint Reserved;
 }
 
 public sealed record ScanOptions
@@ -36,6 +41,9 @@ public sealed record ScanOptions
     public bool IncludeTemporary { get; init; } = true;
     public bool IncludeReparsePoints { get; init; } = true;
     public bool ForceDirectoryScanner { get; init; }
+    public bool IncludeAlternateStreams { get; init; }
+    public bool FollowReparsePoints { get; init; }
+    public bool StayOnVolume { get; init; } = true;
     public IReadOnlyList<string> ExcludedPatterns { get; init; } = [];
     public IReadOnlyList<string> ExcludedExtensions { get; init; } = [];
 
@@ -67,6 +75,8 @@ public sealed record ScanOptions
                     "ExcludedExtensions accepts extensions such as .tmp or *.tmp, not glob patterns.",
                     nameof(ExcludedExtensions));
         }
+        if (FollowReparsePoints && !IncludeReparsePoints)
+            throw new ArgumentException("Following reparse points requires including them.");
     }
 
     internal string? BuildExcludedPatternList() => Join(ExcludedPatterns);
@@ -82,6 +92,9 @@ public sealed record ScanOptions
         if (!IncludeTemporary) flags |= SmonScanOptionFlags.ExcludeTemporary;
         if (!IncludeReparsePoints) flags |= SmonScanOptionFlags.ExcludeReparsePoints;
         if (ForceDirectoryScanner) flags |= SmonScanOptionFlags.ForceDirectoryScanner;
+        if (IncludeAlternateStreams) flags |= SmonScanOptionFlags.IncludeAlternateStreams;
+        if (FollowReparsePoints) flags |= SmonScanOptionFlags.FollowReparsePoints;
+        if (!StayOnVolume) flags |= SmonScanOptionFlags.AllowCrossVolume;
 
         return new SmonScanOptionsNative
         {
@@ -93,6 +106,7 @@ public sealed record ScanOptions
             MaximumFileSize = MaximumFileSize ?? 0,
             ExcludedPatterns = patterns,
             ExcludedExtensions = extensions,
+            TraversalPolicyVersion = 1,
         };
     }
 

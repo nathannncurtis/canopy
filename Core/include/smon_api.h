@@ -17,6 +17,7 @@
 #define SMON_FLAG_DIRECTORY 0x01u
 #define SMON_FLAG_SYMLINK   0x02u
 #define SMON_FLAG_REPARSE   0x04u
+#define SMON_FLAG_STREAM    0x08u // size is logical stream bytes; included once in totals
 
 #define SMON_SCANNER_UNKNOWN   0u
 #define SMON_SCANNER_MFT       1u
@@ -58,6 +59,9 @@
 #define SMON_OPTION_EXCLUDE_TEMPORARY    0x00000004u
 #define SMON_OPTION_EXCLUDE_REPARSE      0x00000008u
 #define SMON_OPTION_FORCE_DIRECTORY_SCAN 0x00000010u
+#define SMON_OPTION_INCLUDE_STREAMS       0x00000020u
+#define SMON_OPTION_FOLLOW_REPARSE        0x00000040u
+#define SMON_OPTION_ALLOW_CROSS_VOLUME    0x00000080u
 
 typedef struct SmonScanOptions {
     uint32_t struct_size;
@@ -68,6 +72,10 @@ typedef struct SmonScanOptions {
     uint64_t maximum_file_size; // 0 = unlimited
     const wchar_t* excluded_patterns;   // semicolon/comma/newline separated
     const wchar_t* excluded_extensions; // semicolon/comma/newline separated
+    // Fields below are additive. Callers using the original struct size retain
+    // report-only reparse points, same-volume traversal, and no named streams.
+    uint32_t traversal_policy_version; // 0 or 1 = current policy contract
+    uint32_t reserved;                 // must be zero
 } SmonScanOptions;
 
 typedef struct SmonCapabilities {

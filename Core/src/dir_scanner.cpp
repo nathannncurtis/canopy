@@ -1,7 +1,9 @@
 #include "dir_scanner.h"
 #include "scan_context.h"
+#include "traversal_policy.h"
 #include <queue>
 #include <string>
+#include <vector>
 
 // NtQueryDirectoryFile signature loaded dynamically from ntdll.
 typedef LONG NTSTATUS;
@@ -73,9 +75,30 @@ struct DirState {
     uint64_t volatile       files_done;
     uint64_t volatile       bytes_done;
     PTP_WORK                tp_work;   // set after creation so callbacks can resubmit
+    TraversalIdentityTracker identities;
 };
 
 static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK work);
+
+struct NamedStreamInfo { std::wstring name; uint64_t size; };
+
+static std::vector<NamedStreamInfo> EnumerateNamedStreams(const std::wstring& path)
+{
+    std::vector<NamedStreamInfo> streams;
+    WIN32_FIND_STREAM_DATA data{};
+    HANDLE find = FindFirstStreamW(path.c_str(), FindStreamInfoStandard, &data, 0);
+    if (find == INVALID_HANDLE_VALUE) return streams;
+    do {
+        std::wstring_view name(data.cStreamName);
+        if (name == L"::$DATA") continue;
+        constexpr std::wstring_view suffix = L":$DATA";
+        if (name.ends_with(suffix)) name.remove_suffix(suffix.size());
+        if (!name.empty()) streams.push_back({ std::wstring(name),
+            static_cast<uint64_t>(data.StreamSize.QuadPart) });
+    } while (FindNextStreamW(find, &data));
+    FindClose(find);
+    return streams;
+}
 
 DWORD WINAPI DirScanThread(LPVOID param)
 {
@@ -253,6 +276,31 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
         return;
     }
 
+    // Following a reparse point can lead back to any ancestor. File identity,
+    // unlike path text, catches junction aliases and differently-cased links.
+    BY_HANDLE_FILE_INFORMATION identity{};
+    if (!GetFileInformationByHandle(dir, &identity)) {
+        RecordAccessError(ctx, GetLastError(), item.path);
+        CloseHandle(dir);
+        InterlockedDecrement(&state->in_flight);
+        return;
+    }
+    const uint64_t file_id = (static_cast<uint64_t>(identity.nFileIndexHigh) << 32) |
+        identity.nFileIndexLow;
+    bool reject_directory = false;
+    {
+        EnterCriticalSection(&state->cs);
+        reject_directory = state->identities.Observe(identity.dwVolumeSerialNumber, file_id,
+            ctx->options.stay_on_volume) != TraversalDecision::Visit;
+        LeaveCriticalSection(&state->cs);
+    }
+    if (reject_directory) {
+        ctx->skipped_directories.fetch_add(1, std::memory_order_relaxed);
+        CloseHandle(dir);
+        InterlockedDecrement(&state->in_flight);
+        return;
+    }
+
     static const ULONG kBufSize = 65536;
     BYTE buf[kBufSize];
 
@@ -311,17 +359,19 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                     continue;
                 }
 
-                // Build subdirectory path before taking the lock (avoids holding CS
-                // across std::wstring allocation).
-                std::wstring child_path;
+                // Build the path before taking the lock. Files need it for ADS
+                // enumeration and directories need it for queued traversal.
+                std::wstring child_path = item.path;
+                if (child_path.back() != L'\\') child_path += L'\\';
+                child_path.append(fdi->FileName, name_chars);
                 bool enqueue_child = false;
-                if (is_dir && !is_reparse && child_depth < ctx->options.max_depth) {
-                    child_path = item.path;
-                    if (child_path.back() != L'\\')
-                        child_path += L'\\';
-                    child_path.append(fdi->FileName, name_chars);
+                if (is_dir && (!is_reparse || ctx->options.follow_reparse_points) &&
+                    child_depth < ctx->options.max_depth) {
                     enqueue_child = true;
                 }
+                std::vector<NamedStreamInfo> streams;
+                if (!is_dir && ctx->options.include_alternate_streams)
+                    streams = EnumerateNamedStreams(child_path);
 
                 // AllocNode, AppendName, node field writes, and sibling-chain link
                 // must all be serialized: NodePool is not thread-safe and multiple
@@ -362,6 +412,29 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                         ScanNode* parent_node  = ctx->pool.NodeAt(item.parent_idx);
                         node->next_sibling     = parent_node->first_child;
                         parent_node->first_child = idx;
+
+                        for (const NamedStreamInfo& stream : streams) {
+                            uint32_t stream_idx = ctx->pool.AllocNamedNode(
+                                stream.name.data(), static_cast<uint32_t>(stream.name.size()));
+                            if (stream_idx == UINT32_MAX) {
+                                ctx->error = ERROR_NOT_ENOUGH_MEMORY;
+                                ctx->cancelled.store(true, std::memory_order_release);
+                                break;
+                            }
+                            ScanNode* stream_node = ctx->pool.NodeAt(stream_idx);
+                            stream_node->name_len = static_cast<uint32_t>(stream.name.size());
+                            stream_node->flags = SMON_FLAG_STREAM;
+                            stream_node->size = stream.size;
+                            stream_node->parent = idx;
+                            stream_node->first_child = UINT32_MAX;
+                            stream_node->next_sibling = node->first_child;
+                            node->first_child = stream_idx;
+                            InterlockedIncrement64(
+                                reinterpret_cast<volatile LONG64*>(&state->files_done));
+                            InterlockedAdd64(
+                                reinterpret_cast<volatile LONG64*>(&state->bytes_done),
+                                static_cast<LONG64>(stream.size));
+                        }
 
                         if (enqueue_child) {
                             DirWorkItem child_item;
