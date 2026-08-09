@@ -40,6 +40,51 @@ public sealed class CommandSystemTests
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public void ApplyOverridesIsAtomicWhenPersistedSettingsCollide()
+    {
+        var registry = Registry();
+        Assert.Throws<ArgumentException>(() => registry.ApplyOverrides(
+            new Dictionary<string, string?>
+            {
+                ["favorites.toggle"] = "Ctrl+K",
+                ["search.save"] = "Ctrl+K",
+            }));
+        Assert.Equal("Ctrl+D", registry.GetShortcut("favorites.toggle"));
+        Assert.Equal("Ctrl+S", registry.GetShortcut("search.save"));
+    }
+
+    [Fact]
+    public void UnregisterRemovesCommandAndItsOverride()
+    {
+        var registry = Registry();
+        registry.SetShortcut("search.save", "Ctrl+Shift+S");
+        Assert.True(registry.Unregister("search.save"));
+        Assert.Null(registry.FindCommandByShortcut("Ctrl+Shift+S"));
+        Assert.DoesNotContain(registry.Commands, item => item.Id == "search.save");
+    }
+
+    [Fact]
+    public void ResetShortcutRestoresDefaultAndRemovesOverride()
+    {
+        var registry = Registry(); registry.SetShortcut("search.save", "Ctrl+Shift+S");
+        registry.ResetShortcut("search.save");
+        Assert.Equal("Ctrl+S", registry.GetShortcut("search.save"));
+        Assert.DoesNotContain("search.save", registry.GetOverrides());
+    }
+
+    [Fact]
+    public void RegistrationAndResetRejectEffectiveCollisions()
+    {
+        var registry = Registry();
+        Assert.Throws<ArgumentException>(() => registry.Register(
+            new("duplicate", "Duplicate", "Test", "Collision", "Ctrl+S"), _ => Task.CompletedTask));
+        registry.SetShortcut("search.save", "Ctrl+Shift+S");
+        registry.SetShortcut("favorites.toggle", "Ctrl+S");
+        Assert.Throws<ArgumentException>(() => registry.ResetShortcut("search.save"));
+        Assert.Equal("Ctrl+Shift+S", registry.GetShortcut("search.save"));
+    }
+
     static AppCommandRegistry Registry()
     {
         var registry = new AppCommandRegistry();

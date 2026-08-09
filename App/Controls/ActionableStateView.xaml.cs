@@ -3,7 +3,7 @@ using System.Windows.Controls;
 
 namespace SizeMonitor.Controls;
 
-public enum ActionableStateKind { Empty, NoResults, PermissionRequired, Offline, Error }
+public enum ActionableStateKind { Empty, NoResults, Partial, PermissionRequired, Offline, Error }
 
 public sealed record ActionableState(ActionableStateKind Kind, string Title, string Message,
     string? PrimaryAction = null, string? SecondaryAction = null, string? Details = null);
@@ -30,6 +30,7 @@ public partial class ActionableStateView : UserControl
         {
             ActionableStateKind.Empty => "GET STARTED",
             ActionableStateKind.NoResults => "NO MATCHES",
+            ActionableStateKind.Partial => "PARTIAL RESULTS",
             ActionableStateKind.PermissionRequired => "PERMISSION NEEDED",
             ActionableStateKind.Offline => "LOCATION UNAVAILABLE",
             _ => "SOMETHING WENT WRONG",

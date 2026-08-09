@@ -21,6 +21,7 @@ public partial class SearchResultsView : UserControl
     bool _presetsLoaded;
 
     public event Action<uint>? NodeActivated;
+    public event Action<IReadOnlyList<ScanFilterPreset>>? PresetsChanged;
 
     public SearchResultsView()
     {
@@ -37,6 +38,18 @@ public partial class SearchResultsView : UserControl
         _status.Text = result is null
             ? "Run a scan to search its results."
             : $"Ready to search {result.Nodes.Length:N0} items. Enter a filter to begin.";
+    }
+
+    public async Task<bool> ApplyPresetAsync(string name, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        IReadOnlyList<ScanFilterPreset> presets = await _presetStore.LoadAsync(cancellationToken);
+        ScanFilterPreset? preset = presets.FirstOrDefault(item =>
+            string.Equals(item.Name, name.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (preset is null) return false;
+        SetPresets(presets, preset.Name);
+        ApplyPreset(preset);
+        return true;
     }
 
     void OnFilterChanged(object sender, RoutedEventArgs e) => ScheduleSearch(immediate: false);
@@ -76,6 +89,11 @@ public partial class SearchResultsView : UserControl
     void OnPresetSelected(object sender, SelectionChangedEventArgs e)
     {
         if (_applyingPreset || _presetBox.SelectedItem is not ScanFilterPreset preset) return;
+        ApplyPreset(preset);
+    }
+
+    void ApplyPreset(ScanFilterPreset preset)
+    {
         _applyingPreset = true;
         try
         {
@@ -247,6 +265,7 @@ public partial class SearchResultsView : UserControl
         {
             _applyingPreset = false;
         }
+        PresetsChanged?.Invoke(presets);
     }
 
     void OnResultDoubleClick(object sender, MouseButtonEventArgs e)

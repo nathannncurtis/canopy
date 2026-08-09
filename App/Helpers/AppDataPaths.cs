@@ -12,4 +12,6 @@ public static class AppDataPaths
         : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Canopy");
 
     public static string FilterPresets => Path.Combine(DataDirectory, "filter-presets.json");
+    public static string ShortcutOverrides => Path.Combine(DataDirectory, "shortcuts.json");
+    public static string ObservabilityDirectory => Path.Combine(DataDirectory, "observability");
 }
