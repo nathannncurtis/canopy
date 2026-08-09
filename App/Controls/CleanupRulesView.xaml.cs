@@ -182,6 +182,41 @@ public partial class CleanupRulesView : UserControl
         }
     }
 
+    async void OnPersonalStoragePreview(object sender, RoutedEventArgs e)
+    {
+        ScanResultManaged? result = _result;
+        if (result is null) { _status.Text = "Run a scan before previewing personal storage categories."; return; }
+        CancelPreview(); _preview = null; _navigator = null; _items.ItemsSource = null; UpdateNavigatorButtons();
+        var cancellation = new CancellationTokenSource(); _previewCancellation = cancellation;
+        CancellationToken token = cancellation.Token; long generation = Volatile.Read(ref _generation);
+        _status.Text = $"Classifying {result.Nodes.Length:N0} items for personal storage…";
+        try
+        {
+            PersonalStoragePreview personal = await Task.Run(() =>
+                PersonalStorageClassifier.ClassifyScanResult(result, DateTimeOffset.UtcNow,
+                    cancellationToken: token), token);
+            if (generation != Volatile.Read(ref _generation) || token.IsCancellationRequested) return;
+            CleanupPreviewItem[] items = personal.Findings.Where(item => item.NodeIndex.HasValue)
+                .Select(item => new CleanupPreviewItem(item.NodeIndex!.Value, item.Path, item.Size, item.Risk,
+                    [item.Category.ToString()], [$"{item.Rationale} Recommended handling: {item.Disposition}."]))
+                .ToArray();
+            _preview = new(items, personal.TotalBytes,
+                items.Count(item => item.Risk == CleanupRisk.Low),
+                items.Count(item => item.Risk == CleanupRisk.Medium),
+                items.Count(item => item.Risk == CleanupRisk.High));
+            _navigator = new CleanupFindingNavigator(_preview); ApplyFilters(); UpdateNavigatorButtons();
+            _status.Text += " " + string.Join(" ", personal.Limitations) + " Nothing was changed.";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is ArgumentException or InvalidDataException or OverflowException)
+        { if (generation == Volatile.Read(ref _generation)) _status.Text = $"Personal storage preview failed: {ex.Message}"; }
+        finally
+        {
+            if (ReferenceEquals(_previewCancellation, cancellation)) _previewCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
     void StartPreview(ScanResultManaged result, CleanupRuleSet rules)
     {
         CancelPreview();

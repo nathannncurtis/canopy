@@ -21,6 +21,9 @@
                 <Button Content="Built-in cleanup scan" Padding="12,4" Margin="8,0,0,0"
                         Click="OnBuiltInPreview" ToolTip="Preview recognized temporary, log, dump, cache, update, and Recycle Bin storage"
                         AutomationProperties.Name="Preview built-in cleanup categories" />
+                <Button Content="Personal storage scan" Padding="12,4" Margin="8,0,0,0"
+                        Click="OnPersonalStoragePreview" ToolTip="Preview virtual disks, games, large attachment caches, downloads, backups, and orphaned app data"
+                        AutomationProperties.Name="Preview personal storage categories" />
                 <Button Content="Preview only" Padding="12,4" Margin="8,0,0,0"
                         Click="OnPreview" ToolTip="Evaluate rules without changing the filesystem"
                         AutomationProperties.Name="Preview cleanup rules" />
