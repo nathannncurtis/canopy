@@ -1,0 +1,22 @@
+<UserControl x:Class="SizeMonitor.Controls.SelectionActionsBar"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <DockPanel Margin="12,4,12,8" LastChildFill="False">
+        <TextBlock x:Name="_summary" DockPanel.Dock="Left" VerticalAlignment="Center"
+                   Margin="0,0,16,0" Text="No items selected"
+                   AutomationProperties.LiveSetting="Polite" />
+        <ui:Button x:Name="_open" Content="Open" Tag="Open" Click="OnAction" Margin="0,0,6,0"
+                   IsEnabled="False" ToolTip="Open every selected file or folder"
+                   AutomationProperties.Name="Open selected items" />
+        <ui:Button x:Name="_containing" Content="Containing folder" Tag="OpenContaining" Click="OnAction" Margin="0,0,6,0"
+                   IsEnabled="False" ToolTip="Show every selected item in File Explorer"
+                   AutomationProperties.Name="Open containing folders for selected items" />
+        <ui:Button x:Name="_paths" Content="Copy paths" Tag="CopyPaths" Click="OnAction" Margin="0,0,6,0"
+                   IsEnabled="False" ToolTip="Copy full paths, one per line" />
+        <ui:Button x:Name="_text" Content="Copy rows" Tag="CopyText" Click="OnAction" Margin="0,0,6,0"
+                   IsEnabled="False" ToolTip="Copy tab-separated selected rows" />
+        <ui:Button x:Name="_csv" Content="Copy CSV" Tag="CopyCsv" Click="OnAction"
+                   IsEnabled="False" ToolTip="Copy selected rows as CSV" />
+    </DockPanel>
+</UserControl>
