@@ -18,6 +18,7 @@ public sealed record ReportDeliveryContent
     public string MediaType { get; init; } = "text/plain";
     public string FileName { get; init; } = "canopy-report.txt";
     public required string IdempotencyKey { get; init; }
+    public bool NetworkTransferConsent { get; init; }
 }
 
 public sealed record SmtpDeliveryOptions
@@ -122,6 +123,9 @@ public sealed class ReportDeliveryService
     static void ValidateContent(ReportDeliveryContent content)
     {
         ArgumentNullException.ThrowIfNull(content);
+        if (!content.NetworkTransferConsent)
+            throw new InvalidOperationException(
+                "Explicit consent is required before a report or its filename can be sent over the network.");
         if (content.Bytes.Length == 0 || content.Bytes.Length > MaximumReportBytes)
             throw new ArgumentException($"Report must contain 1 to {MaximumReportBytes} bytes.", nameof(content));
         if (string.IsNullOrWhiteSpace(content.IdempotencyKey) || content.IdempotencyKey.Length > 128 ||

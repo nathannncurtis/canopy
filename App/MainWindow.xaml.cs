@@ -55,6 +55,14 @@ public partial class MainWindow : FluentWindow
         _treemap.PathChanged += OnTreemapPathChanged;
     }
 
+    void OnScreenshotPrivacyChanged(object sender, RoutedEventArgs e)
+    {
+        if (_screenshotPrivacyOverlay is null || _pathPrivacyMask is null) return;
+        bool enabled = _screenshotPrivacyToggle.IsChecked == true;
+        _screenshotPrivacyOverlay.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        _pathPrivacyMask.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     async void OnLoaded(object sender, RoutedEventArgs e)
     {
         // Hide elevation badge if running elevated.

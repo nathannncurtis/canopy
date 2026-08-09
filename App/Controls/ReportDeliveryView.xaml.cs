@@ -28,7 +28,8 @@ public partial class ReportDeliveryView : UserControl
     {
         Cancel();
         _content = content;
-        _send.IsEnabled = content is not null;
+        _consent.IsChecked = false;
+        UpdateSendEnabled();
         _status.Text = content is null ? "Generate a report before choosing delivery." : "Report ready to send.";
     }
 
@@ -44,7 +45,8 @@ public partial class ReportDeliveryView : UserControl
     async void OnSend(object sender, RoutedEventArgs e)
     {
         ReportDeliveryContent? content = _content;
-        if (content is null || _cancellation is not null) return;
+        if (content is null || _cancellation is not null || _consent.IsChecked != true) return;
+        content = content with { NetworkTransferConsent = true };
         var cancellation = new CancellationTokenSource();
         _cancellation = cancellation;
         SetRunning(true);
@@ -63,7 +65,7 @@ public partial class ReportDeliveryView : UserControl
         {
             _status.Text = "Report delivery cancelled.";
         }
-        catch (Exception ex) when (ex is ArgumentException or FormatException)
+        catch (Exception ex) when (ex is ArgumentException or FormatException or InvalidOperationException)
         {
             _status.Text = "Delivery settings are invalid. Check the highlighted method's fields and try again.";
         }
@@ -109,17 +111,23 @@ public partial class ReportDeliveryView : UserControl
 
     void OnCancel(object sender, RoutedEventArgs e) => Cancel();
 
+    void OnConsentChanged(object sender, RoutedEventArgs e) => UpdateSendEnabled();
+
     public void Cancel() => _cancellation?.Cancel();
 
     void SetRunning(bool running)
     {
-        _send.IsEnabled = !running && _content is not null;
+        _send.IsEnabled = !running && _content is not null && _consent.IsChecked == true;
         _cancel.IsEnabled = running;
         _mode.IsEnabled = !running;
         _webhookPanel.IsEnabled = !running;
         _smtpPanel.IsEnabled = !running;
+        _consent.IsEnabled = !running;
         _progress.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    void UpdateSendEnabled() =>
+        _send.IsEnabled = _cancellation is null && _content is not null && _consent.IsChecked == true;
 
     void RaiseStatusChanged()
     {
