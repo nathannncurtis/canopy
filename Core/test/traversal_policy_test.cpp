@@ -56,6 +56,17 @@ static bool HasName(const ScanResult& result, std::wstring_view expected)
     return false;
 }
 
+static uint32_t FindNameIndex(const ScanResult& result, std::wstring_view expected)
+{
+    for (uint32_t i = 0; i < result.node_count; ++i) {
+        const ScanNode& node = result.nodes[i];
+        const wchar_t* name = reinterpret_cast<const wchar_t*>(
+            reinterpret_cast<const BYTE*>(result.name_buf) + node.name_offset);
+        if (std::wstring_view(name, node.name_len) == expected) return i;
+    }
+    return UINT32_MAX;
+}
+
 int wmain()
 {
     TraversalIdentityTracker tracker;
@@ -119,6 +130,31 @@ int wmain()
                    L"byte telemetry includes named-stream logical bytes")) return 1;
     }
 
+    std::wstring case_dir = root + L"\\case-sensitive";
+    CreateDirectoryW(case_dir.c_str(), nullptr);
+    HANDLE case_handle = CreateFileW(case_dir.c_str(), FILE_WRITE_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    bool case_supported = false;
+    if (case_handle != INVALID_HANDLE_VALUE) {
+        FILE_CASE_SENSITIVE_INFO case_info{ FILE_CS_FLAG_CASE_SENSITIVE_DIR };
+        case_supported = SetFileInformationByHandle(case_handle, FileCaseSensitiveInfo,
+            &case_info, sizeof(case_info)) != FALSE;
+        CloseHandle(case_handle);
+    }
+    if (case_supported) {
+        HANDLE upper = CreateFileW((case_dir + L"\\Name.bin").c_str(), GENERIC_WRITE, 0,
+            nullptr, CREATE_ALWAYS, 0, nullptr);
+        HANDLE lower = CreateFileW((case_dir + L"\\name.bin").c_str(), GENERIC_WRITE, 0,
+            nullptr, CREATE_ALWAYS, 0, nullptr);
+        if (upper == INVALID_HANDLE_VALUE || lower == INVALID_HANDLE_VALUE) return 1;
+        CloseHandle(upper); CloseHandle(lower);
+        OwnedScan case_scan;
+        if (!Check(Scan(root, 0, case_scan), L"case-sensitive scan completes") ||
+            !Check(HasName(case_scan.result, L"Name.bin") && HasName(case_scan.result, L"name.bin"),
+                   L"case-distinct siblings remain separate")) return 1;
+    }
+
     std::wstring deep = L"\\\\?\\" + root;
     while (deep.size() < 280) {
         deep += L"\\segment-0123456789";
@@ -134,6 +170,52 @@ int wmain()
             !Check(HasName(long_paths.result, L"deep.bin"), L"path beyond MAX_PATH is not truncated")) return 1;
     }
 
+    std::wstring hard_link = root + L"\\data\\payload-link.bin";
+    if (CreateHardLinkW(hard_link.c_str(), file.c_str(), nullptr)) {
+        OwnedScan links;
+        if (!Check(Scan(root, 0, links), L"hard-link scan completes")) return 1;
+        uint32_t first = FindNameIndex(links.result, L"payload.bin");
+        uint32_t second = FindNameIndex(links.result, L"payload-link.bin");
+        SmonNodeMetadata first_meta{ sizeof(SmonNodeMetadata) };
+        SmonNodeMetadata second_meta{ sizeof(SmonNodeMetadata) };
+        uint32_t data_index = FindNameIndex(links.result, L"data");
+        SmonNodeMetadata data_meta{ sizeof(SmonNodeMetadata) };
+        if (!Check(first != UINT32_MAX && second != UINT32_MAX, L"both hard-link entries remain visible") ||
+            !Check(Smon_GetNodeMetadata(links.handle, first, &first_meta) &&
+                   Smon_GetNodeMetadata(links.handle, second, &second_meta), L"hard-link metadata queried") ||
+            !Check(first_meta.file_id == second_meta.file_id &&
+                   first_meta.volume_serial == second_meta.volume_serial, L"aliases share volume-scoped identity") ||
+            !Check(first_meta.link_count >= 2 && second_meta.link_count >= 2, L"link count is exposed") ||
+            !Check(((first_meta.flags & SMON_NODE_META_UNIQUE_ALLOCATION) != 0) !=
+                   ((second_meta.flags & SMON_NODE_META_UNIQUE_ALLOCATION) != 0),
+                   L"physical allocation is accounted exactly once") ||
+            !Check(data_index != UINT32_MAX &&
+                   Smon_GetNodeMetadata(links.handle, data_index, &data_meta),
+                   L"nested directory metadata queried") ||
+            !Check(data_meta.allocated_bytes == links.result.nodes[data_index].size &&
+                   data_meta.uniquely_accounted_bytes == data_meta.allocated_bytes,
+                   L"directory metadata matches unique rolled-up aggregate")) return 1;
+        if (ads_supported) {
+            OwnedScan linked_streams;
+            if (!Check(Scan(root, SMON_OPTION_INCLUDE_STREAMS, linked_streams),
+                       L"hard-link ADS scan completes")) return 1;
+            uint32_t stream_count = 0;
+            uint32_t unique_streams = 0;
+            uint64_t unique_stream_bytes = 0;
+            for (uint32_t i = 0; i < linked_streams.result.node_count; ++i) {
+                if ((linked_streams.result.nodes[i].flags & SMON_FLAG_STREAM) == 0) continue;
+                SmonNodeMetadata metadata{ sizeof(SmonNodeMetadata) };
+                if (!Smon_GetNodeMetadata(linked_streams.handle, i, &metadata)) return 1;
+                ++stream_count;
+                if ((metadata.flags & SMON_NODE_META_UNIQUE_ALLOCATION) != 0) ++unique_streams;
+                unique_stream_bytes += metadata.uniquely_accounted_bytes;
+            }
+            if (!Check(stream_count == 2, L"ADS remains visible through both hard-link aliases") ||
+                !Check(unique_streams == 1 && unique_stream_bytes == sizeof(stream_payload),
+                       L"hard-link ADS allocation is accounted exactly once")) return 1;
+        }
+    }
+
     bool link_created = CreateSymbolicLinkW((root + L"\\data\\cycle").c_str(), root.c_str(),
         SYMBOLIC_LINK_FLAG_DIRECTORY | 0x2) != FALSE;
     if (link_created) {
@@ -144,8 +226,14 @@ int wmain()
         OwnedScan followed;
         if (!Check(Scan(root, SMON_OPTION_FOLLOW_REPARSE, followed),
                    L"cycle-safe follow scan completes") ||
-            !Check(followed.result.node_count < 32,
+            !Check(followed.result.node_count < 64,
                    L"reparse cycle does not recurse indefinitely")) return 1;
+        uint32_t cycle = FindNameIndex(followed.result, L"cycle");
+        SmonNodeMetadata cycle_meta{ sizeof(SmonNodeMetadata) };
+        if (!Check(cycle != UINT32_MAX && Smon_GetNodeMetadata(followed.handle, cycle, &cycle_meta),
+                   L"cycle edge metadata queried") ||
+            !Check((cycle_meta.flags & SMON_NODE_META_CYCLE_EDGE) != 0,
+                   L"skipped cycle edge is diagnosed")) return 1;
     }
 
     std::filesystem::remove_all(L"\\\\?\\" + root);

@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <mutex>
 #include <string>
+#include <vector>
 
 struct ScanContext {
     NodePool           pool;
@@ -46,6 +47,7 @@ struct ScanContext {
     uint64_t           root_file_id = 0;
     bool               root_snapshot_valid = false;
     std::atomic<bool>  mutation_checked = false;
+    std::vector<SmonNodeMetadata> node_metadata;
 
     ~ScanContext() {
         if (cancel_event) CloseHandle(cancel_event);

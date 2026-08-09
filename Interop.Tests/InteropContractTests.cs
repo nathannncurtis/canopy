@@ -32,12 +32,14 @@ public sealed class InteropContractTests
         Assert.Equal(0x10ul, (ulong)CoreCapability.ScanOptions);
         Assert.Equal(0x80ul, (ulong)CoreCapability.Arm64Intrinsics);
         Assert.Equal(0x100ul, (ulong)CoreCapability.RouteInfo);
+        Assert.Equal(0x200ul, (ulong)CoreCapability.NodeMetadata);
         Assert.Equal(24, Marshal.SizeOf<SmonCapabilitiesNative>());
         Assert.Equal(8, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.Flags)).ToInt32());
         Assert.Equal(16, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.MaxNodes)).ToInt32());
         Assert.Equal(20, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.MaxNameBytes)).ToInt32());
         Assert.Equal(IntPtr.Size == 8 ? 72 : 64, Marshal.SizeOf<SmonScanOptionsNative>());
         Assert.Equal(24, Marshal.SizeOf<SmonRouteInfoNative>());
+        Assert.Equal(48, Marshal.SizeOf<SmonNodeMetadataNative>());
     }
 
     [Theory]
@@ -216,6 +218,42 @@ public sealed class InteropContractTests
         options.Validate();
 
         Assert.Equal(".tmp;.LOG", options.BuildExcludedExtensionList());
+    }
+
+    [Fact]
+    public async Task ManagedNodeMetadataQueriesCompletedResultAndRejectsOutOfRange()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"canopy-metadata-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(Path.Combine(root, "item.bin"), "payload",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            ScanSession session;
+            try
+            {
+                session = ScanSession.Start(root, null,
+                    new ScanOptions { ForceDirectoryScanner = true });
+            }
+            catch (DllNotFoundException)
+            {
+                Assert.Skip("Native metadata integration requires a built Canopy.Core.dll on the DLL path.");
+                return;
+            }
+            using (session)
+            {
+                ScanResultManaged result = await session.WaitAsync(TestContext.Current.CancellationToken);
+
+                ScanNodeMetadata metadata = Assert.IsType<ScanNodeMetadata>(session.GetNodeMetadata(0));
+                Assert.True(metadata.LinkCount >= 1);
+                Assert.Equal(result.Nodes[0].Size, metadata.AllocatedBytes);
+                Assert.Null(session.GetNodeMetadata(uint.MaxValue));
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

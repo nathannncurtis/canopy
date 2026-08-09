@@ -50,6 +50,7 @@ add_library(Canopy.Core SHARED
     src/traversal_policy.cpp
     src/filesystem_policy.cpp
     src/network_scan_policy.cpp
+    src/filesystem_identity.cpp
     src/size_rollup.cpp
     src/cpu_features.cpp
     src/architecture_dispatch.cpp
@@ -191,3 +192,11 @@ if(MSVC)
     target_compile_options(network_scan_policy_test PRIVATE /W4 /WX /utf-8)
 endif()
 add_test(NAME network_scan_policy_contract COMMAND network_scan_policy_test)
+
+add_executable(filesystem_identity_test test/filesystem_identity_test.cpp src/filesystem_identity.cpp)
+target_include_directories(filesystem_identity_test PRIVATE src)
+target_compile_definitions(filesystem_identity_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+if(MSVC)
+    target_compile_options(filesystem_identity_test PRIVATE /W4 /WX /utf-8)
+endif()
+add_test(NAME filesystem_identity_contract COMMAND filesystem_identity_test)

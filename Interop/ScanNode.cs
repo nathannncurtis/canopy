@@ -48,6 +48,32 @@ public enum ScanPhase : uint
     Complete = 5,
 }
 
+[Flags]
+public enum ScanNodeMetadataFlags : uint
+{
+    None = 0,
+    UniqueAllocation = 0x01,
+    CycleEdge = 0x02,
+    CanonicalLinkOnly = 0x04,
+}
+
+public sealed record ScanNodeMetadata(ScanNodeMetadataFlags Flags, uint LinkCount,
+    uint VolumeSerial, ulong FileId, ulong LogicalBytes, ulong AllocatedBytes,
+    ulong UniquelyAccountedBytes);
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct SmonNodeMetadataNative
+{
+    public uint StructSize;
+    public ScanNodeMetadataFlags Flags;
+    public uint LinkCount;
+    public uint VolumeSerial;
+    public ulong FileId;
+    public ulong LogicalBytes;
+    public ulong AllocatedBytes;
+    public ulong UniquelyAccountedBytes;
+}
+
 public sealed record ScanProgress(
     ulong DirsVisited,
     ulong FilesVisited,

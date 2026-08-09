@@ -35,6 +35,11 @@
 #define SMON_CAP_SCAN_TELEMETRY    0x00000040ull
 #define SMON_CAP_ARM64_INTRINSICS  0x00000080ull
 #define SMON_CAP_ROUTE_INFO         0x00000100ull
+#define SMON_CAP_NODE_METADATA      0x00000200ull
+
+#define SMON_NODE_META_UNIQUE_ALLOCATION 0x01u
+#define SMON_NODE_META_CYCLE_EDGE        0x02u
+#define SMON_NODE_META_CANONICAL_LINK_ONLY 0x04u // MFT exposes one canonical name per FRN
 
 #define SMON_FILESYSTEM_UNKNOWN 0u
 #define SMON_FILESYSTEM_NTFS 1u
@@ -144,6 +149,17 @@ typedef struct SmonRouteInfo {
     uint32_t reserved;
 } SmonRouteInfo;
 
+typedef struct SmonNodeMetadata {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t link_count;
+    uint32_t volume_serial;
+    uint64_t file_id;
+    uint64_t logical_bytes;
+    uint64_t allocated_bytes;
+    uint64_t uniquely_accounted_bytes;
+} SmonNodeMetadata;
+
 // 32 bytes, naturally aligned -- matches C# [StructLayout(LayoutKind.Sequential, Pack=8)]
 typedef struct ScanNode {
     uint64_t size;         // on-disk bytes; dirs include all descendants
@@ -197,6 +213,8 @@ SMON_API BOOL WINAPI Smon_GetErrorInfo(ScanHandle handle, SmonErrorInfo* error_i
 SMON_API BOOL WINAPI Smon_GetScanStatus(ScanHandle handle, SmonScanStatus* status);
 SMON_API DWORD WINAPI Smon_GetScannerKind(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_GetRouteInfo(ScanHandle handle, SmonRouteInfo* route_info);
+SMON_API BOOL WINAPI Smon_GetNodeMetadata(ScanHandle handle, uint32_t node_index,
+                                          SmonNodeMetadata* metadata);
 SMON_API BOOL WINAPI Smon_GetResult(ScanHandle handle, ScanResult* out);
 SMON_API void WINAPI Smon_FreeResult(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_IsNtfsVolume(const wchar_t* path);
