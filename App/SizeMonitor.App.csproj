@@ -20,5 +20,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Interop\SizeMonitor.Interop.csproj" />
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
   </ItemGroup>
 </Project>

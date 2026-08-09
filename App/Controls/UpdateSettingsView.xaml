@@ -1,0 +1,35 @@
+<UserControl x:Class="SizeMonitor.Controls.UpdateSettingsView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml" AutomationProperties.Name="Updates and portable mode">
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="18" MaxWidth="760" HorizontalAlignment="Left">
+      <TextBlock Text="Updates and portable mode" FontSize="22" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level1" />
+      <Border Margin="0,16,0,0" Padding="16" CornerRadius="8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+        <StackPanel>
+          <TextBlock Text="Storage mode" FontSize="17" FontWeight="SemiBold" />
+          <TextBlock x:Name="_mode" Margin="0,6,0,0" TextWrapping="Wrap" />
+          <TextBlock x:Name="_dataPath" Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap" />
+          <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Text="Portable mode is selected at startup by placing an empty portable.flag beside Canopy.exe. Settings, logs, history, and update downloads then stay under the application folder. Restart after changing the marker." />
+        </StackPanel>
+      </Border>
+      <Border Margin="0,12,0,0" Padding="16" CornerRadius="8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+        <StackPanel>
+          <TextBlock Text="Check for updates" FontSize="17" FontWeight="SemiBold" />
+          <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Text="Checking sends one HTTPS request to the Canopy update manifest. It does not include scan data, paths, installation identifiers, or telemetry. Canopy never checks, downloads, opens, or installs an update without your action." />
+          <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+            <TextBlock Text="Channel" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox x:Name="_channel" Width="130" SelectedIndex="0" AutomationProperties.Name="Update channel">
+              <ComboBoxItem Content="Stable" />
+              <ComboBoxItem Content="Preview" />
+            </ComboBox>
+            <ui:Button x:Name="_check" Content="Check now" Appearance="Primary" Margin="12,0,0,0" Click="OnCheck" />
+          </StackPanel>
+          <TextBlock x:Name="_status" Margin="0,12,0,0" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+          <TextBlock x:Name="_notes" Margin="0,8,0,0" TextWrapping="Wrap" Visibility="Collapsed" />
+          <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+            <ui:Button x:Name="_download" Content="Download verified update..." Visibility="Collapsed" Click="OnDownload" />
+            <ui:Button x:Name="_open" Content="Open verified installer" Appearance="Primary" Margin="8,0,0,0" Visibility="Collapsed" Click="OnOpenInstaller" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

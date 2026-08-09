@@ -5,7 +5,7 @@ namespace SizeMonitor.Helpers;
 public static class TourCompletionStore
 {
     const string CurrentVersion = "1";
-    public static string DefaultPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SizeMonitor", "tour-completed-v1");
+    public static string DefaultPath => AppDataPaths.TourCompletion;
 
     public static bool IsComplete(string? path = null)
     {
