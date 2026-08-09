@@ -28,6 +28,10 @@ internal struct SmonScanOptionsNative
     public IntPtr ExcludedExtensions;
     public uint TraversalPolicyVersion;
     public uint Reserved;
+    public uint NetworkWorkerThreads;
+    public uint NetworkRetryCount;
+    public uint NetworkRetryDelayMilliseconds;
+    public uint NetworkReserved;
 }
 
 public sealed record ScanOptions
@@ -44,6 +48,9 @@ public sealed record ScanOptions
     public bool IncludeAlternateStreams { get; init; }
     public bool FollowReparsePoints { get; init; }
     public bool StayOnVolume { get; init; } = true;
+    public uint NetworkWorkerThreads { get; init; } = 4;
+    public uint NetworkRetryCount { get; init; } = 1;
+    public TimeSpan NetworkRetryDelay { get; init; } = TimeSpan.FromMilliseconds(100);
     public IReadOnlyList<string> ExcludedPatterns { get; init; } = [];
     public IReadOnlyList<string> ExcludedExtensions { get; init; } = [];
 
@@ -63,6 +70,12 @@ public sealed record ScanOptions
         if (WorkerThreads is > 32)
             throw new ArgumentOutOfRangeException(nameof(WorkerThreads),
                 "WorkerThreads cannot exceed 32.");
+        if (NetworkWorkerThreads is < 1 or > 16)
+            throw new ArgumentOutOfRangeException(nameof(NetworkWorkerThreads));
+        if (NetworkRetryCount > 5)
+            throw new ArgumentOutOfRangeException(nameof(NetworkRetryCount));
+        if (NetworkRetryDelay < TimeSpan.Zero || NetworkRetryDelay > TimeSpan.FromSeconds(5))
+            throw new ArgumentOutOfRangeException(nameof(NetworkRetryDelay));
         ValidateList(ExcludedPatterns, nameof(ExcludedPatterns));
         ValidateList(ExcludedExtensions, nameof(ExcludedExtensions));
         foreach (string extension in ExcludedExtensions)
@@ -107,6 +120,9 @@ public sealed record ScanOptions
             ExcludedPatterns = patterns,
             ExcludedExtensions = extensions,
             TraversalPolicyVersion = 1,
+            NetworkWorkerThreads = NetworkWorkerThreads,
+            NetworkRetryCount = NetworkRetryCount,
+            NetworkRetryDelayMilliseconds = checked((uint)NetworkRetryDelay.TotalMilliseconds),
         };
     }
 

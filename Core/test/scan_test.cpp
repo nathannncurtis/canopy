@@ -89,6 +89,16 @@ int wmain(int argc, wchar_t* argv[])
     Smon_Wait(legacy_options_handle, INFINITE);
     Smon_FreeResult(legacy_options_handle);
 
+    SmonScanOptions traversal_v1{};
+    traversal_v1.struct_size = static_cast<uint32_t>(offsetof(SmonScanOptions, network_worker_threads));
+    traversal_v1.flags = SMON_OPTION_FORCE_DIRECTORY_SCAN;
+    traversal_v1.traversal_policy_version = 1;
+    ScanHandle traversal_v1_handle = Smon_BeginScanEx(path, &traversal_v1, nullptr, nullptr);
+    if (!Check(traversal_v1_handle != nullptr, L"extended scan accepts traversal v1 options")) return 1;
+    Smon_Cancel(traversal_v1_handle);
+    Smon_Wait(traversal_v1_handle, INFINITE);
+    Smon_FreeResult(traversal_v1_handle);
+
     invalid = {};
     invalid.struct_size = sizeof(invalid);
     invalid.flags = 0x80000000u;
@@ -125,6 +135,12 @@ int wmain(int argc, wchar_t* argv[])
                GetLastError() == ERROR_INVALID_PARAMETER,
                L"extended scan rejects an excessive worker count"))
         return 1;
+    invalid = {};
+    invalid.struct_size = sizeof(invalid);
+    invalid.network_worker_threads = 17;
+    if (!Check(Smon_BeginScanEx(path, &invalid, nullptr, nullptr) == nullptr &&
+               GetLastError() == ERROR_INVALID_PARAMETER,
+               L"extended scan rejects excessive network concurrency")) return 1;
 
     SmonScanOptions filtered{};
     filtered.struct_size = sizeof(filtered);

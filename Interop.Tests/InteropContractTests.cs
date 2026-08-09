@@ -36,7 +36,7 @@ public sealed class InteropContractTests
         Assert.Equal(8, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.Flags)).ToInt32());
         Assert.Equal(16, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.MaxNodes)).ToInt32());
         Assert.Equal(20, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.MaxNameBytes)).ToInt32());
-        Assert.Equal(IntPtr.Size == 8 ? 56 : 48, Marshal.SizeOf<SmonScanOptionsNative>());
+        Assert.Equal(IntPtr.Size == 8 ? 72 : 64, Marshal.SizeOf<SmonScanOptionsNative>());
         Assert.Equal(24, Marshal.SizeOf<SmonRouteInfoNative>());
     }
 
@@ -128,6 +128,9 @@ public sealed class InteropContractTests
             IncludeAlternateStreams = true,
             FollowReparsePoints = true,
             StayOnVolume = false,
+            NetworkWorkerThreads = 3,
+            NetworkRetryCount = 2,
+            NetworkRetryDelay = TimeSpan.FromMilliseconds(250),
             ForceDirectoryScanner = true,
             ExcludedPatterns = ["cache*", "obj\\*"],
             ExcludedExtensions = ["tmp", ".log"],
@@ -147,6 +150,9 @@ public sealed class InteropContractTests
         Assert.True(native.Flags.HasFlag(SmonScanOptionFlags.FollowReparsePoints));
         Assert.True(native.Flags.HasFlag(SmonScanOptionFlags.AllowCrossVolume));
         Assert.Equal(1u, native.TraversalPolicyVersion);
+        Assert.Equal(3u, native.NetworkWorkerThreads);
+        Assert.Equal(2u, native.NetworkRetryCount);
+        Assert.Equal(250u, native.NetworkRetryDelayMilliseconds);
         Assert.Equal("cache*;obj\\*", options.BuildExcludedPatternList());
         Assert.Equal("tmp;.log", options.BuildExcludedExtensionList());
     }
@@ -158,6 +164,14 @@ public sealed class InteropContractTests
         {
             MinimumFileSize = 2,
             MaximumFileSize = 1,
+        }.Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ScanOptions
+        {
+            NetworkWorkerThreads = 17,
+        }.Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ScanOptions
+        {
+            NetworkRetryCount = 6,
         }.Validate());
         Assert.Throws<ArgumentOutOfRangeException>(() => new ScanOptions
         {

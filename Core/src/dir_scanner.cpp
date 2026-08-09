@@ -2,6 +2,7 @@
 #include "scan_context.h"
 #include "traversal_policy.h"
 #include "filesystem_policy.h"
+#include "network_scan_policy.h"
 #include <queue>
 #include <string>
 #include <vector>
@@ -134,8 +135,9 @@ DWORD WINAPI DirScanThread(LPVOID param)
     {
         ScanNode* root = ctx->pool.NodeAt(root_idx);
         // Name is the last path component or the path itself.
-        const wchar_t* name_start = scan_path;
-        for (const wchar_t* p = scan_path; *p; ++p) {
+        const wchar_t* display_path = ctx->display_root.empty() ? scan_path : ctx->display_root.c_str();
+        const wchar_t* name_start = display_path;
+        for (const wchar_t* p = display_path; *p; ++p) {
             if ((*p == L'\\' || *p == L'/') && *(p + 1))
                 name_start = p + 1;
         }
@@ -164,11 +166,8 @@ DWORD WINAPI DirScanThread(LPVOID param)
 
     SYSTEM_INFO si{};
     GetSystemInfo(&si);
-    DWORD max_threads = ctx->options.worker_threads != 0
-        ? ctx->options.worker_threads
-        : si.dwNumberOfProcessors * 4;
-    if (max_threads > 32) max_threads = 32;
-    if (max_threads < 1) max_threads = 1;
+    DWORD max_threads = SelectDirectoryWorkerLimit(ctx->network_scan,
+        ctx->options.worker_threads, ctx->options.network_worker_threads, si.dwNumberOfProcessors);
     SetThreadpoolThreadMaximum(pool, max_threads);
 
     TP_CALLBACK_ENVIRON tpenv{};
@@ -264,15 +263,41 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
     }
 
     // Open the directory.
-    HANDLE dir = CreateFileW(item.path.c_str(),
-                             FILE_LIST_DIRECTORY,
-                             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                             nullptr,
-                             OPEN_EXISTING,
-                             FILE_FLAG_BACKUP_SEMANTICS,
-                             nullptr);
+    HANDLE dir = INVALID_HANDLE_VALUE;
+    DWORD open_error = ERROR_SUCCESS;
+    for (uint32_t retries_used = 0;;) {
+        dir = CreateFileW(item.path.c_str(), FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+        if (dir != INVALID_HANDLE_VALUE) break;
+        open_error = GetLastError();
+        NetworkFailureKind failure = ClassifyNetworkError(open_error);
+        NetworkRetryAction action = ctx->network_scan
+            ? DecideNetworkRetry(failure, retries_used, ctx->options.network_retry_count,
+                ctx->cancelled.load(std::memory_order_acquire))
+            : NetworkRetryAction::Fail;
+        if (action != NetworkRetryAction::Retry) {
+            if (action == NetworkRetryAction::Cancelled) open_error = ERROR_CANCELLED;
+            break;
+        }
+        DWORD delay = NetworkRetryDelay(retries_used++, ctx->options.network_retry_delay_ms, 5000);
+        if (!WaitForNetworkRetry(ctx->cancel_event, delay)) {
+            open_error = ERROR_CANCELLED;
+            break;
+        }
+    }
     if (dir == INVALID_HANDLE_VALUE) {
-        RecordAccessError(ctx, GetLastError(), item.path);
+        std::wstring diagnostic_path = RedactNetworkCredentials(item.path);
+        RecordAccessError(ctx, open_error, diagnostic_path);
+        if (ctx->network_scan && open_error != ERROR_CANCELLED) {
+            NetworkFailureKind failure = ClassifyNetworkError(open_error);
+            if (NetworkFailureScope(failure, item.depth == 0) == NetworkFailureDisposition::FatalScan) {
+                DWORD category = failure == NetworkFailureKind::Authentication
+                    ? SMON_ERROR_CATEGORY_ACCESS : SMON_ERROR_CATEGORY_IO;
+                RecordScanError(ctx, open_error, category, SMON_ERROR_STAGE_OPEN, diagnostic_path);
+                ctx->cancelled.store(true, std::memory_order_release);
+            }
+        }
         InterlockedDecrement(&state->in_flight);
         return;
     }

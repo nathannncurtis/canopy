@@ -49,12 +49,14 @@ add_library(Canopy.Core SHARED
     src/tree_compactor.cpp
     src/traversal_policy.cpp
     src/filesystem_policy.cpp
+    src/network_scan_policy.cpp
     src/size_rollup.cpp
     src/cpu_features.cpp
     src/architecture_dispatch.cpp
     src/scan_options.cpp
 )
 target_link_libraries(Canopy.Core PRIVATE simd_sum_obj)
+target_link_libraries(Canopy.Core PRIVATE Mpr)
 
 target_include_directories(Canopy.Core PRIVATE include)
 
@@ -181,3 +183,11 @@ if(MSVC)
     target_compile_options(filesystem_policy_test PRIVATE /W4 /WX /utf-8)
 endif()
 add_test(NAME filesystem_policy_contract COMMAND filesystem_policy_test)
+
+add_executable(network_scan_policy_test test/network_scan_policy_test.cpp src/network_scan_policy.cpp)
+target_include_directories(network_scan_policy_test PRIVATE src)
+target_compile_definitions(network_scan_policy_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+if(MSVC)
+    target_compile_options(network_scan_policy_test PRIVATE /W4 /WX /utf-8)
+endif()
+add_test(NAME network_scan_policy_contract COMMAND network_scan_policy_test)
