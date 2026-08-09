@@ -29,6 +29,8 @@ public static class Program
         Console.CancelKeyPress += cancelHandler;
         try
         {
+            if (options.IsolatedWorker)
+                return await RunIsolationWorkerAsync(options, cancellation.Token);
             if (options.BenchmarkRuns > 0)
             {
                 ScanBenchmarkResult benchmark = await ScanBenchmark.RunAsync(options.Paths[0],
@@ -70,6 +72,25 @@ public static class Program
             return RuntimeFailure;
         }
         finally { Console.CancelKeyPress -= cancelHandler; }
+    }
+
+    static async Task<int> RunIsolationWorkerAsync(Options options, CancellationToken token)
+    {
+        if (options.Paths.Count != 1 || string.IsNullOrWhiteSpace(options.WorkerSnapshotPath))
+            throw new ArgumentException("Isolation worker requires one path and a snapshot destination.");
+        var progress = new Progress<ScanProgress>(value =>
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new { type = "progress", dirs = value.DirsVisited,
+                files = value.FilesVisited, bytes = value.BytesSeen, phase = value.Phase.ToString(), terminal = value.IsTerminal }));
+            Console.Out.Flush();
+        });
+        using ScanSession session = ScanSession.Start(options.Paths[0], progress, options.ScanOptions);
+        ScanResultManaged result = await session.WaitAsync(token);
+        await ScanSnapshotStore.SaveAsync(options.WorkerSnapshotPath, result, token);
+        Console.WriteLine(JsonSerializer.Serialize(new { type = "complete", scanner = session.Scanner.ToString(),
+            dirs = result.DirCount, files = result.FileCount, bytes = result.TotalBytes }));
+        Console.Out.Flush();
+        return Success;
     }
 
     static async Task ExportAsync(ScanResultManaged result, string path, string format, CancellationToken token)
@@ -136,13 +157,14 @@ public static class Program
 
     internal sealed record Options(IReadOnlyList<string> Paths, int Concurrency, bool Json,
         string? OutputPath, string Format, ScanOptions? ScanOptions, bool Help,
-        int BenchmarkRuns, int WarmupRuns)
+        int BenchmarkRuns, int WarmupRuns, bool IsolatedWorker, string? WorkerSnapshotPath)
     {
         public static Options Parse(string[] args)
         {
             var paths = new List<string>(); var patterns = new List<string>(); var extensions = new List<string>();
             int concurrency = 2; bool json = false, help = false, forceDirectory = false;
             int benchmarkRuns = 0, warmupRuns = 1;
+            bool isolatedWorker = false; string? workerSnapshot = null;
             bool includeHidden = true, includeSystem = true, includeTemporary = true, includeReparse = true;
             uint? depth = null, workers = null; ulong minimum = 0; ulong? maximum = null;
             string? output = null; string format = "json";
@@ -167,6 +189,8 @@ public static class Program
                     case "--exclude-temporary": includeTemporary = false; break;
                     case "--exclude-reparse": includeReparse = false; break;
                     case "--force-directory": forceDirectory = true; break;
+                    case "--isolation-worker": isolatedWorker = true; break;
+                    case "--worker-snapshot": workerSnapshot = Next(); break;
                     case "--benchmark": benchmarkRuns = ParsePositiveInt(Next(), arg, 30); break;
                     case "--warmup": warmupRuns = ParseNonNegativeInt(Next(), arg, 10); break;
                     case "-o" or "--output": output = Next(); break;
@@ -188,7 +212,9 @@ public static class Program
                 IncludeTemporary = includeTemporary, IncludeReparsePoints = includeReparse,
                 ForceDirectoryScanner = forceDirectory, ExcludedPatterns = patterns, ExcludedExtensions = extensions };
             scan.Validate();
-            return new(paths, concurrency, json, output, format, scan, help, benchmarkRuns, warmupRuns);
+            if (isolatedWorker && (paths.Count != 1 || string.IsNullOrWhiteSpace(workerSnapshot)))
+                throw new ArgumentException("--isolation-worker requires exactly one path and --worker-snapshot.");
+            return new(paths, concurrency, json, output, format, scan, help, benchmarkRuns, warmupRuns, isolatedWorker, workerSnapshot);
         }
         static int ParsePositiveInt(string text, string option, int max) =>
             int.TryParse(text, out int value) && value is > 0 && value <= max ? value :

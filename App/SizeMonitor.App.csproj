@@ -12,6 +12,7 @@
     <Authors>Nathan Curtis</Authors>
     <Product>Canopy</Product>
     <AssemblyTitle>Canopy</AssemblyTitle>
+    <RollForward>LatestPatch</RollForward>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +21,17 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Interop\SizeMonitor.Interop.csproj" />
+    <ProjectReference Include="..\Cli\SizeMonitor.Cli.csproj" ReferenceOutputAssembly="false" />
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
   </ItemGroup>
+
+  <Target Name="CopyIsolationWorker" AfterTargets="Build">
+    <ItemGroup>
+      <IsolationWorkerFiles Include="..\Cli\bin\$(Configuration)\net9.0-windows\canopy-cli.exe" />
+      <IsolationWorkerFiles Include="..\Cli\bin\$(Configuration)\net9.0-windows\canopy-cli.dll" />
+      <IsolationWorkerFiles Include="..\Cli\bin\$(Configuration)\net9.0-windows\canopy-cli.deps.json" />
+      <IsolationWorkerFiles Include="..\Cli\bin\$(Configuration)\net9.0-windows\canopy-cli.runtimeconfig.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(IsolationWorkerFiles)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

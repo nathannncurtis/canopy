@@ -16,5 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Interop\SizeMonitor.Interop.csproj" />
+    <ProjectReference Include="..\Interop.TestWorker\Interop.TestWorker.csproj" />
   </ItemGroup>
 </Project>
