@@ -35,8 +35,14 @@ int wmain()
         return 1;
     pool.TestSetUsage(0, NodePool::MaxNameBytes);
     if (!Check(pool.AppendName(L"x", 1) == UINT32_MAX,
-               L"name allocation rejected at byte capacity"))
+               L"name allocation rejected at byte capacity") ||
+        !Check(pool.AllocNamedNode(L"x", 1) == UINT32_MAX,
+               L"atomic named-node allocation rejects exhausted names"))
         return 1;
+    ScanResult exhausted{};
+    pool.Finalize(&exhausted);
+    if (!Check(exhausted.node_count == 0,
+               L"failed named-node allocation leaves no partial node")) return 1;
     pool.TestSetUsage(0, 0);
 
     uint32_t index = pool.AllocNode();

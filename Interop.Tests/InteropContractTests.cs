@@ -24,6 +24,7 @@ public sealed class InteropContractTests
         Assert.Equal(0x01u, ScanNodeFlags.Directory);
         Assert.Equal(0x02u, ScanNodeFlags.Symlink);
         Assert.Equal(0x04u, ScanNodeFlags.Reparse);
+        Assert.Equal(0x08u, ScanNodeFlags.Stream);
         Assert.Equal(1u, CoreCapabilities.ExpectedAbiVersion);
         Assert.Equal(0x01ul, (ulong)CoreCapability.MftScanner);
         Assert.Equal(0x08ul, (ulong)CoreCapability.Avx2Assembly);
@@ -33,7 +34,7 @@ public sealed class InteropContractTests
         Assert.Equal(8, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.Flags)).ToInt32());
         Assert.Equal(16, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.MaxNodes)).ToInt32());
         Assert.Equal(20, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.MaxNameBytes)).ToInt32());
-        Assert.Equal(IntPtr.Size == 8 ? 48 : 40, Marshal.SizeOf<SmonScanOptionsNative>());
+        Assert.Equal(IntPtr.Size == 8 ? 56 : 48, Marshal.SizeOf<SmonScanOptionsNative>());
     }
 
     [Theory]
@@ -121,7 +122,9 @@ public sealed class InteropContractTests
             MinimumFileSize = 10,
             MaximumFileSize = 20,
             IncludeHidden = false,
-            IncludeReparsePoints = false,
+            IncludeAlternateStreams = true,
+            FollowReparsePoints = true,
+            StayOnVolume = false,
             ForceDirectoryScanner = true,
             ExcludedPatterns = ["cache*", "obj\\*"],
             ExcludedExtensions = ["tmp", ".log"],
@@ -136,8 +139,11 @@ public sealed class InteropContractTests
         Assert.Equal(10ul, native.MinimumFileSize);
         Assert.Equal(20ul, native.MaximumFileSize);
         Assert.True(native.Flags.HasFlag(SmonScanOptionFlags.ExcludeHidden));
-        Assert.True(native.Flags.HasFlag(SmonScanOptionFlags.ExcludeReparsePoints));
         Assert.True(native.Flags.HasFlag(SmonScanOptionFlags.ForceDirectoryScanner));
+        Assert.True(native.Flags.HasFlag(SmonScanOptionFlags.IncludeAlternateStreams));
+        Assert.True(native.Flags.HasFlag(SmonScanOptionFlags.FollowReparsePoints));
+        Assert.True(native.Flags.HasFlag(SmonScanOptionFlags.AllowCrossVolume));
+        Assert.Equal(1u, native.TraversalPolicyVersion);
         Assert.Equal("cache*;obj\\*", options.BuildExcludedPatternList());
         Assert.Equal("tmp;.log", options.BuildExcludedExtensionList());
     }
@@ -177,6 +183,11 @@ public sealed class InteropContractTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new ScanOptions
         {
             WorkerThreads = 0,
+        }.Validate());
+        Assert.Throws<ArgumentException>(() => new ScanOptions
+        {
+            IncludeReparsePoints = false,
+            FollowReparsePoints = true,
         }.Validate());
     }
 

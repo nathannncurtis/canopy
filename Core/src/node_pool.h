@@ -19,6 +19,9 @@ public:
 
     // Copies len wchar_t characters into the name pool; returns byte offset from name_buf start.
     uint32_t AppendName(const wchar_t* name, uint32_t len);
+    // Atomically reserves and initializes a node and its name. On failure the
+    // visible node/name counts are unchanged.
+    uint32_t AllocNamedNode(const wchar_t* name, uint32_t len);
 
     ScanNode* NodeAt(uint32_t index);
 

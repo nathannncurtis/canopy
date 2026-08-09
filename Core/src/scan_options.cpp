@@ -90,6 +90,7 @@ bool ScanOptions::HasConstrainingOptions() const
     return max_depth != UINT32_MAX || minimum_file_size != 0 ||
         maximum_file_size != UINT64_MAX || !include_hidden || !include_system ||
         !include_temporary || !include_reparse_points ||
+        include_alternate_streams || follow_reparse_points || !stay_on_volume ||
         !excluded_patterns.empty() || !excluded_extensions.empty();
 }
 

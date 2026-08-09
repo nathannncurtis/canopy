@@ -20,6 +20,7 @@ public static class ScanNodeFlags
     public const uint Directory = 0x01u;
     public const uint Symlink   = 0x02u;
     public const uint Reparse   = 0x04u;
+    public const uint Stream    = 0x08u;
 }
 
 // Mirrors the C ScanResult struct for P/Invoke; must not be copied after Smon_GetResult.

@@ -60,5 +60,12 @@ int wmain()
     filtered.worker_threads = 33;
     if (!Check(filtered.Validate() == ERROR_INVALID_PARAMETER, L"thread cap enforced"))
         return 1;
+    ScanOptions traversal;
+    traversal.include_alternate_streams = true;
+    traversal.follow_reparse_points = true;
+    traversal.stay_on_volume = false;
+    if (!Check(traversal.HasConstrainingOptions(), L"traversal policies force directory routing") ||
+        !Check(traversal.Validate() == ERROR_SUCCESS, L"traversal policy options valid"))
+        return 1;
     return 0;
 }

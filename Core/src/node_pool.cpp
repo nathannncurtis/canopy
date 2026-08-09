@@ -79,6 +79,26 @@ bool NodePool::Full() const
     return !m_base || static_cast<SIZE_T>(m_node_count) >= kNodeCapacity;
 }
 
+uint32_t NodePool::AllocNamedNode(const wchar_t* name, uint32_t len)
+{
+    if (!m_base || (len > 0 && !name) || Full() ||
+        len > UINT32_MAX / static_cast<uint32_t>(sizeof(wchar_t))) return UINT32_MAX;
+    uint32_t byte_len = len * static_cast<uint32_t>(sizeof(wchar_t));
+    SIZE_T node_need = (static_cast<SIZE_T>(m_node_count) + 1) * sizeof(ScanNode);
+    SIZE_T name_need = static_cast<SIZE_T>(m_name_used) + byte_len;
+    if (name_need > kHalf ||
+        (node_need > m_node_committed && !GrowNodes()) ||
+        (name_need > m_name_committed && !GrowNames(byte_len))) return UINT32_MAX;
+
+    uint32_t index = m_node_count++;
+    ScanNode* node = NodeAt(index);
+    memset(node, 0, sizeof(*node));
+    node->name_offset = m_name_used;
+    memcpy(m_name_base + m_name_used, name, byte_len);
+    m_name_used += byte_len;
+    return index;
+}
+
 void NodePool::Swap(NodePool& other) noexcept
 {
     using std::swap;
