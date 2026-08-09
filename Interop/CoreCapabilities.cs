@@ -13,6 +13,7 @@ public enum CoreCapability : ulong
     Avx2Assembly = 0x00000008,
     ScanOptions = 0x00000010,
     ErrorInfo = 0x00000020,
+    ScanTelemetry = 0x00000040,
 }
 
 [StructLayout(LayoutKind.Sequential)]

@@ -27,6 +27,20 @@ struct ScanContext {
     std::wstring       error_path;
     DWORD              scanner_kind = 0;   // SMON_SCANNER_* selected by the router
     bool               rolled_up   = false; // guard: RollupSizes must run exactly once
+    std::wstring       scan_root;
+    std::atomic<DWORD> phase = SMON_SCAN_PHASE_DISCOVERY;
+    std::atomic<uint64_t> dirs_visited = 0;
+    std::atomic<uint64_t> files_visited = 0;
+    std::atomic<uint64_t> bytes_seen = 0;
+    std::atomic<uint64_t> skipped_directories = 0;
+    std::atomic<uint64_t> skipped_files = 0;
+    std::atomic<uint64_t> permission_skips = 0;
+    std::atomic<uint64_t> error_skips = 0;
+    std::atomic<uint64_t> changed_items = 0;
+    FILETIME           root_write_time{};
+    uint64_t           root_file_id = 0;
+    bool               root_snapshot_valid = false;
+    std::atomic<bool>  mutation_checked = false;
 
     ~ScanContext() {
         if (cancel_event) CloseHandle(cancel_event);
@@ -48,6 +62,11 @@ inline void RecordAccessError(ScanContext* ctx, DWORD code, const std::wstring& 
 {
     std::lock_guard<std::mutex> lock(ctx->error_mutex);
     ++ctx->access_error_count;
+    ctx->skipped_directories.fetch_add(1, std::memory_order_relaxed);
+    if (code == ERROR_ACCESS_DENIED || code == ERROR_SHARING_VIOLATION || code == ERROR_PRIVILEGE_NOT_HELD)
+        ctx->permission_skips.fetch_add(1, std::memory_order_relaxed);
+    else
+        ctx->error_skips.fetch_add(1, std::memory_order_relaxed);
     ctx->access_win32_error = code;
     // Access failures are non-fatal during directory traversal, but retain the last path.
     if (ctx->error.load(std::memory_order_acquire) == ERROR_SUCCESS) {
@@ -55,6 +74,42 @@ inline void RecordAccessError(ScanContext* ctx, DWORD code, const std::wstring& 
         ctx->error_stage = SMON_ERROR_STAGE_OPEN;
         ctx->error_path = path;
     }
+}
+
+inline void BeginMutationTracking(ScanContext* ctx)
+{
+    HANDLE handle = CreateFileW(ctx->scan_root.c_str(), FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return;
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (GetFileInformationByHandle(handle, &info)) {
+        ctx->root_write_time = info.ftLastWriteTime;
+        ctx->root_file_id = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+        ctx->root_snapshot_valid = true;
+    }
+    CloseHandle(handle);
+}
+
+inline void FinishMutationTracking(ScanContext* ctx)
+{
+    if (!ctx->root_snapshot_valid || ctx->mutation_checked.exchange(true, std::memory_order_acq_rel)) return;
+    HANDLE handle = CreateFileW(ctx->scan_root.c_str(), FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        ctx->changed_items.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (!GetFileInformationByHandle(handle, &info)) {
+        ctx->changed_items.fetch_add(1, std::memory_order_relaxed);
+    } else {
+        const uint64_t id = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+        if (id != ctx->root_file_id || CompareFileTime(&info.ftLastWriteTime, &ctx->root_write_time) != 0)
+            ctx->changed_items.fetch_add(1, std::memory_order_relaxed);
+    }
+    CloseHandle(handle);
 }
 
 inline bool WaitWhilePaused(ScanContext* ctx)

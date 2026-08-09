@@ -262,6 +262,10 @@ DWORD WINAPI MftScanThread(LPVOID param)
             memcpy(&node->size, &rec->ParentFileReferenceNumber, sizeof(DWORDLONG));
 
             ++record_count;
+            if ((node->flags & SMON_FLAG_DIRECTORY) != 0)
+                ctx->dirs_visited.fetch_add(1, std::memory_order_relaxed);
+            else
+                ctx->files_visited.fetch_add(1, std::memory_order_relaxed);
             if (record_count % 50000 == 0 && ctx->callback) {
                 ctx->callback(0, record_count, 0, ctx->user_data);
             }
@@ -272,6 +276,7 @@ DWORD WINAPI MftScanThread(LPVOID param)
 
     CloseHandle(vol);
 
+    ctx->phase.store(SMON_SCAN_PHASE_METADATA, std::memory_order_release);
     // Second pass: resolve parent FRNs and build child/sibling chains.
     uint32_t node_count = static_cast<uint32_t>(frn_by_idx.size());
     // Iterate all allocated nodes by index range (pool tracks count via Finalize later).
@@ -362,11 +367,24 @@ DWORD WINAPI MftScanThread(LPVOID param)
                                          nullptr,
                                          FILE_FLAG_BACKUP_SEMANTICS);
                 if (fh == INVALID_HANDLE_VALUE)
-                    continue; // access denied / deleted since enumeration; leave size 0
+                {
+                    const DWORD open_error = GetLastError();
+                    ctx->skipped_files.fetch_add(1, std::memory_order_relaxed);
+                    if (open_error == ERROR_ACCESS_DENIED || open_error == ERROR_SHARING_VIOLATION)
+                        ctx->permission_skips.fetch_add(1, std::memory_order_relaxed);
+                    else {
+                        ctx->error_skips.fetch_add(1, std::memory_order_relaxed);
+                        if (open_error == ERROR_FILE_NOT_FOUND || open_error == ERROR_PATH_NOT_FOUND)
+                            ctx->changed_items.fetch_add(1, std::memory_order_relaxed);
+                    }
+                    continue; // inaccessible or deleted since enumeration; leave size 0
+                }
 
                 FILE_STANDARD_INFO fsi{};
-                if (GetFileInformationByHandleEx(fh, FileStandardInfo, &fsi, sizeof(fsi)))
+                if (GetFileInformationByHandleEx(fh, FileStandardInfo, &fsi, sizeof(fsi))) {
                     node->size = static_cast<uint64_t>(fsi.AllocationSize.QuadPart);
+                    ctx->bytes_seen.fetch_add(node->size, std::memory_order_relaxed);
+                }
                 CloseHandle(fh);
             }
             CloseHandle(root_dir);

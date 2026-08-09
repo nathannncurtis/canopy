@@ -37,7 +37,60 @@ internal unsafe struct ScanResultNative
     public double    ElapsedSec;
 }
 
-public record ScanProgress(ulong DirsVisited, ulong FilesVisited, ulong BytesSeen);
+public enum ScanPhase : uint
+{
+    Discovery = 1,
+    Metadata = 2,
+    Aggregation = 3,
+    Finalization = 4,
+    Complete = 5,
+}
+
+public sealed record ScanProgress(
+    ulong DirsVisited,
+    ulong FilesVisited,
+    ulong BytesSeen,
+    ScanPhase Phase = ScanPhase.Discovery,
+    bool IsTerminal = false,
+    ulong SkippedDirectories = 0,
+    ulong SkippedFiles = 0,
+    ulong PermissionSkips = 0,
+    ulong ErrorSkips = 0,
+    ulong ChangedItems = 0);
+
+public sealed record ScanProgressOptions
+{
+    public TimeSpan MinimumInterval { get; init; } = TimeSpan.FromMilliseconds(100);
+
+    internal void Validate()
+    {
+        if (MinimumInterval < TimeSpan.FromMilliseconds(10) || MinimumInterval > TimeSpan.FromSeconds(10))
+            throw new ArgumentOutOfRangeException(nameof(MinimumInterval));
+    }
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct SmonScanStatusNative
+{
+    public uint StructSize;
+    public ScanPhase Phase;
+    public uint Terminal;
+    public uint Reserved;
+    public ulong DirsVisited;
+    public ulong FilesVisited;
+    public ulong BytesSeen;
+    public ulong SkippedDirectories;
+    public ulong SkippedFiles;
+    public ulong PermissionSkips;
+    public ulong ErrorSkips;
+    public ulong ChangedItems;
+
+    public readonly ScanProgress ToManaged(bool terminal = false) => new(
+        DirsVisited, FilesVisited, BytesSeen,
+        terminal ? ScanPhase.Complete : Phase,
+        terminal || Terminal != 0,
+        SkippedDirectories, SkippedFiles, PermissionSkips, ErrorSkips, ChangedItems);
+}
 
 public sealed class ScanResultManaged
 {

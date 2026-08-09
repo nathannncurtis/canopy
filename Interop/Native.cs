@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace SizeMonitor.Interop;
 
@@ -35,31 +36,35 @@ internal static unsafe class Native
 
     [DllImport(Dll, ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool Smon_Cancel(IntPtr handle);
+    internal static extern bool Smon_Cancel(SafeScanHandle handle);
 
     [DllImport(Dll, ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool Smon_SetPaused(
-        IntPtr handle,
+        SafeScanHandle handle,
         [MarshalAs(UnmanagedType.Bool)] bool paused);
 
     [DllImport(Dll, ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool Smon_Wait(IntPtr handle, uint timeoutMs);
+    internal static extern bool Smon_Wait(SafeScanHandle handle, uint timeoutMs);
 
     [DllImport(Dll, ExactSpelling = true)]
-    internal static extern uint Smon_GetError(IntPtr handle);
+    internal static extern uint Smon_GetError(SafeScanHandle handle);
 
     [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool Smon_GetErrorInfo(IntPtr handle, ref SmonErrorInfoNative errorInfo);
+    internal static extern bool Smon_GetErrorInfo(SafeScanHandle handle, ref SmonErrorInfoNative errorInfo);
+
+    [DllImport(Dll, ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool Smon_GetScanStatus(SafeScanHandle handle, ref SmonScanStatusNative status);
 
     [DllImport(Dll, ExactSpelling = true)]
-    internal static extern uint Smon_GetScannerKind(IntPtr handle);
+    internal static extern uint Smon_GetScannerKind(SafeScanHandle handle);
 
     [DllImport(Dll, ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool Smon_GetResult(IntPtr handle, ScanResultNative* result);
+    internal static extern bool Smon_GetResult(SafeScanHandle handle, ScanResultNative* result);
 
     [DllImport(Dll, ExactSpelling = true)]
     internal static extern void Smon_FreeResult(IntPtr handle);
@@ -67,4 +72,43 @@ internal static unsafe class Native
     [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool Smon_IsNtfsVolume(string path);
+}
+
+internal sealed class SafeScanHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    readonly Func<IntPtr, bool>? _testRelease;
+
+    public SafeScanHandle() : base(true) { }
+
+    internal SafeScanHandle(IntPtr value) : base(true) => SetHandle(value);
+
+    internal SafeScanHandle(IntPtr value, Func<IntPtr, bool> testRelease) : base(true)
+    {
+        SetHandle(value);
+        _testRelease = testRelease;
+    }
+
+    internal object? CallbackRoot { get; set; }
+
+    protected override bool ReleaseHandle()
+    {
+        if (_testRelease is not null) return _testRelease(handle);
+        // SafeHandle finalization is a last-resort cleanup path. Cancel and join
+        // before freeing because native callbacks may still reference the session.
+        NativeRelease.Cancel(handle);
+        NativeRelease.Wait(handle, uint.MaxValue);
+        Native.Smon_FreeResult(handle);
+        return true;
+    }
+
+    static class NativeRelease
+    {
+        [DllImport("Canopy.Core.dll", EntryPoint = "Smon_Cancel", ExactSpelling = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool Cancel(IntPtr handle);
+
+        [DllImport("Canopy.Core.dll", EntryPoint = "Smon_Wait", ExactSpelling = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool Wait(IntPtr handle, uint timeoutMs);
+    }
 }

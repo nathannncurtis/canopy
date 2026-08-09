@@ -198,6 +198,9 @@ DWORD WINAPI DirScanThread(LPVOID param)
     CloseThreadpool(pool);
     DeleteCriticalSection(&state.cs);
 
+    ctx->dirs_visited.store(state.dirs_done, std::memory_order_relaxed);
+    ctx->files_visited.store(state.files_done, std::memory_order_relaxed);
+    ctx->bytes_seen.store(state.bytes_done, std::memory_order_relaxed);
     if (ctx->callback)
         ctx->callback(state.dirs_done, state.files_done, state.bytes_done, ctx->user_data);
 
@@ -271,8 +274,11 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
 
         if (status == STATUS_NO_MORE_FILES)
             break;
-        if (status < 0) // NTSTATUS failure
+        if (status < 0) { // NTSTATUS failure
+            ctx->skipped_directories.fetch_add(1, std::memory_order_relaxed);
+            ctx->error_skips.fetch_add(1, std::memory_order_relaxed);
             break;
+        }
 
         BYTE* p = buf;
         for (;;) {
@@ -387,6 +393,10 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                             reinterpret_cast<volatile LONG64*>(&state->bytes_done),
                             static_cast<LONG64>(entry_size));
                     }
+
+                    ctx->dirs_visited.store(state->dirs_done, std::memory_order_relaxed);
+                    ctx->files_visited.store(state->files_done, std::memory_order_relaxed);
+                    ctx->bytes_seen.store(state->bytes_done, std::memory_order_relaxed);
 
                     uint64_t dd = state->dirs_done;
                     uint64_t fd = state->files_done;

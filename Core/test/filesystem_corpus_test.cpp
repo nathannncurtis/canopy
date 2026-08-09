@@ -197,8 +197,27 @@ int wmain()
         return 1;
     }
 
+    // Mutate after collection but before materialization. The aggregate snapshot
+    // must be marked stale even if the new item was not part of enumeration.
+    const std::wstring mutation = root + L"\\created-during-scan.txt";
+    if (!Check(WriteSizedFile(mutation, 13), L"mutation fixture created")) {
+        CloseHandle(locked);
+        Smon_FreeResult(handle);
+        return 1;
+    }
+
     ScanResult result{};
     if (!Check(Smon_GetResult(handle, &result) != FALSE, L"corpus result returned")) {
+        CloseHandle(locked);
+        Smon_FreeResult(handle);
+        return 1;
+    }
+    SmonScanStatus status{};
+    status.struct_size = sizeof(status);
+    if (!Check(Smon_GetScanStatus(handle, &status) != FALSE, L"corpus telemetry returned") ||
+        !Check(status.skipped_directories >= 1, L"inaccessible directory counted") ||
+        !Check(status.permission_skips >= 1, L"permission skip classified") ||
+        !Check(status.changed_items >= 1, L"concurrent mutation marked snapshot stale")) {
         CloseHandle(locked);
         Smon_FreeResult(handle);
         return 1;
@@ -255,5 +274,22 @@ int wmain()
 
     Smon_FreeResult(handle);
     CloseHandle(locked);
+
+    ScanHandle stable_handle = Smon_BeginScanEx(deep.c_str(), &options, nullptr, nullptr);
+    if (!Check(stable_handle != nullptr, L"stable scan started") ||
+        !Check(Smon_Wait(stable_handle, INFINITE) != FALSE, L"stable scan completed")) {
+        if (stable_handle) Smon_FreeResult(stable_handle);
+        return 1;
+    }
+    ScanResult stable_result{};
+    SmonScanStatus stable_status{};
+    stable_status.struct_size = sizeof(stable_status);
+    ok &= Check(Smon_GetResult(stable_handle, &stable_result) != FALSE,
+                L"stable result returned");
+    ok &= Check(Smon_GetScanStatus(stable_handle, &stable_status) != FALSE,
+                L"stable telemetry returned");
+    ok &= Check(stable_status.changed_items == 0,
+                L"stable fixture is not marked changed");
+    Smon_FreeResult(stable_handle);
     return ok ? 0 : 1;
 }
