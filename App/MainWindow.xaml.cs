@@ -100,6 +100,10 @@ public partial class MainWindow : FluentWindow
         _commands.Register(new("shortcuts.edit", "Customize keyboard shortcuts", "Application",
             "View shortcut documentation and change command bindings.", null, ["keys", "hotkeys"]),
             _ => { SelectTab("Shortcuts"); return Task.CompletedTask; });
+        _commands.Register(new("privacy.open", "Open privacy and diagnostics", "Application",
+            "Configure crash-report consent, coarse telemetry, and diagnostic logging.", null,
+            ["telemetry", "logging", "consent"]),
+            _ => { SelectTab("Privacy"); return Task.CompletedTask; });
         _commandPalette.SetRegistry(_commands);
         _shortcutSettingsView.SetRegistry(_commands, _shortcutStore);
         _searchView.PresetsChanged += RegisterSavedSearchCommands;

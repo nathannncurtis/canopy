@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -16,6 +17,17 @@ public partial class App : Application
 
         DispatcherUnhandledException += OnDispatcherException;
         AppDomain.CurrentDomain.UnhandledException += OnDomainException;
+
+        try
+        {
+            var consentStore = new ObservabilityConsentStore(AppDataPaths.ObservabilityDirectory);
+            Logger.Level = consentStore.LoadAsync().GetAwaiter().GetResult().LogLevel;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            Logger.Level = DiagnosticLogLevel.Error;
+            Logger.Error("observability settings could not be loaded", ex);
+        }
 
         Logger.Info($"startup — OS {Environment.OSVersion}, .NET {Environment.Version}");
 
