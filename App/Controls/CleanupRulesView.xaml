@@ -9,6 +9,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -79,7 +80,30 @@
                        AutomationProperties.Name="Cleanup recommendation explanation" />
         </Grid>
 
-        <DataGrid Grid.Row="5" x:Name="_items" AutoGenerateColumns="False"
+        <Border Grid.Row="5" Margin="0,0,0,8" Padding="10" BorderThickness="1" BorderBrush="#44888888">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" /><ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" x:Name="_queueNote" Margin="0,0,8,0"
+                         ToolTip="Optional note for the selected cleanup recommendation"
+                         AutomationProperties.Name="Cleanup queue note" />
+                <TextBox Grid.Column="1" x:Name="_queueTags" Margin="0,0,8,0"
+                         ToolTip="Comma-separated tags"
+                         AutomationProperties.Name="Cleanup queue tags" />
+                <Button Grid.Column="2" Content="Mark for later" Padding="12,4" Margin="0,0,8,0"
+                        Click="OnQueueSelected" AutomationProperties.Name="Add selected recommendation to cleanup queue" />
+                <Button Grid.Column="3" Content="Remove mark" Padding="12,4" Margin="0,0,8,0"
+                        Click="OnRemoveQueued" AutomationProperties.Name="Remove selected recommendation from cleanup queue" />
+                <TextBox Grid.Column="4" x:Name="_confirmationThreshold" Width="105" Margin="0,0,8,0"
+                         ToolTip="Typed-confirmation threshold in bytes" AutomationProperties.Name="Cleanup confirmation threshold bytes" />
+                <Button Grid.Column="5" Content="Save threshold" Padding="12,4" Click="OnSaveThreshold" />
+            </Grid>
+        </Border>
+
+        <DataGrid Grid.Row="6" x:Name="_items" AutoGenerateColumns="False"
                   IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow"
                   CanUserAddRows="False" CanUserDeleteRows="False"
                   EnableRowVirtualization="True" EnableColumnVirtualization="True"
