@@ -19,18 +19,21 @@ public partial class SizeTreeView : UserControl
         InitializeComponent();
     }
 
-    public void Populate(ScanResultManaged result)
+    internal static Task<SizeNodeView[]> PrepareAsync(
+        ScanResultManaged result, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        return Task.Run(() => BuildViewArray(result, cancellationToken), cancellationToken);
+    }
+
+    internal void PopulatePrepared(ScanResultManaged result, SizeNodeView[] views)
     {
         _result = result;
-        _views = [];
+        _views = views;
         _tree.Items.Clear();
 
         if (result.Nodes.Length == 0) return;
-
-        _views = BuildViewArray(result);
         var root  = _views[0];
-
-        SortChildren(root);
 
         _tree.Items.Add(root);
 
@@ -87,11 +90,12 @@ public partial class SizeTreeView : UserControl
         }
     }
 
-    static SizeNodeView[] BuildViewArray(ScanResultManaged result)
+    static SizeNodeView[] BuildViewArray(ScanResultManaged result, CancellationToken cancellationToken)
     {
         var views = new SizeNodeView[result.Nodes.Length];
         for (int i = 0; i < result.Nodes.Length; i++)
         {
+            if ((i & 0x3fff) == 0) cancellationToken.ThrowIfCancellationRequested();
             ref readonly ScanNode n = ref result.Nodes[i];
             ulong parentSize = n.Parent != uint.MaxValue
                 ? result.Nodes[n.Parent].Size
@@ -110,19 +114,30 @@ public partial class SizeTreeView : UserControl
         // Link children by parent index.
         for (int i = 0; i < result.Nodes.Length; i++)
         {
+            if ((i & 0x3fff) == 0) cancellationToken.ThrowIfCancellationRequested();
             ref readonly ScanNode n = ref result.Nodes[i];
             if (n.Parent != uint.MaxValue)
                 views[n.Parent].Children.Add(views[i]);
         }
-
+        if (views.Length > 0) SortChildren(views[0], cancellationToken);
         return views;
     }
 
-    static void SortChildren(SizeNodeView node)
+    static void SortChildren(SizeNodeView root, CancellationToken cancellationToken)
     {
-        node.Children.Sort((a, b) => b.Size.CompareTo(a.Size));
-        foreach (var child in node.Children)
-            SortChildren(child);
+        var pending = new Stack<SizeNodeView>();
+        pending.Push(root);
+        int visited = 0;
+        while (pending.TryPop(out SizeNodeView? node))
+        {
+            if ((visited++ & 0x3fff) == 0) cancellationToken.ThrowIfCancellationRequested();
+            node.Children.Sort(static (a, b) =>
+            {
+                int size = b.Size.CompareTo(a.Size);
+                return size != 0 ? size : a.Index.CompareTo(b.Index);
+            });
+            foreach (SizeNodeView child in node.Children) pending.Push(child);
+        }
     }
 
     void OnSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)

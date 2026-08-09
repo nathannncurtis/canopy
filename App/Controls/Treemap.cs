@@ -13,6 +13,11 @@ public sealed class Treemap : Panel
     ScanResultManaged? _result;
     List<SizeNodeView>? _currentChildren;
     readonly Stack<uint> _navStack = new();
+    readonly Dictionary<GeometryCacheKey, GeometryCacheEntry> _geometryCache = [];
+    const int MaximumGeometryCacheEntries = 128;
+
+    /// <summary>Diagnostic counter used to verify that unchanged layouts reuse geometry.</summary>
+    public ulong LayoutComputationCount { get; private set; }
 
     // 8 accent colors cycling by position.
     static readonly Brush[] Palette =
@@ -37,6 +42,8 @@ public sealed class Treemap : Panel
 
     public void SetRoot(ScanResultManaged result, uint rootIndex)
     {
+        if (!ReferenceEquals(_result, result))
+            _geometryCache.Clear();
         _result    = result;
         _rootIndex = rootIndex;
         _navStack.Clear();
@@ -158,11 +165,29 @@ public sealed class Treemap : Panel
         if (_currentChildren == null || _currentChildren.Count == 0)
             return finalSize;
 
-        var rects = Squarify(_currentChildren, new Rect(0, 0, finalSize.Width, finalSize.Height));
+        IReadOnlyList<Rect> rects = GetOrCreateGeometry(_currentChildren, finalSize);
         for (int i = 0; i < Children.Count && i < rects.Count; i++)
             Children[i].Arrange(rects[i]);
 
         return finalSize;
+    }
+
+    IReadOnlyList<Rect> GetOrCreateGeometry(List<SizeNodeView> nodes, Size finalSize)
+    {
+        var key = new GeometryCacheKey(_rootIndex,
+            BitConverter.DoubleToInt64Bits(finalSize.Width),
+            BitConverter.DoubleToInt64Bits(finalSize.Height));
+        ChildGeometryFact[] facts = nodes.Select(node => new ChildGeometryFact(node.Index, node.Size)).ToArray();
+        if (_geometryCache.TryGetValue(key, out GeometryCacheEntry? cached) &&
+            cached.Facts.AsSpan().SequenceEqual(facts))
+            return cached.Rectangles;
+
+        List<Rect> rectangles = Squarify(nodes, new Rect(0, 0, finalSize.Width, finalSize.Height));
+        LayoutComputationCount++;
+        if (_geometryCache.Count >= MaximumGeometryCacheEntries && !_geometryCache.ContainsKey(key))
+            _geometryCache.Remove(_geometryCache.Keys.First());
+        _geometryCache[key] = new GeometryCacheEntry(facts, rectangles);
+        return rectangles;
     }
 
     // Squarified treemap algorithm (Bruls, Huizing, van Wijk 2000).
@@ -252,4 +277,8 @@ public sealed class Treemap : Panel
             worst = Math.Max(worst, AspectRatio(nodes[i].Size, rowSize, w, totalSize, totalArea));
         return worst;
     }
+
+    readonly record struct GeometryCacheKey(uint RootIndex, long WidthBits, long HeightBits);
+    readonly record struct ChildGeometryFact(uint Index, ulong Size);
+    sealed record GeometryCacheEntry(ChildGeometryFact[] Facts, IReadOnlyList<Rect> Rectangles);
 }
