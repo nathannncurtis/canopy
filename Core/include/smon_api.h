@@ -94,6 +94,10 @@ typedef struct SmonScanOptions {
     // report-only reparse points, same-volume traversal, and no named streams.
     uint32_t traversal_policy_version; // 0 or 1 = current policy contract
     uint32_t reserved;                 // must be zero
+    uint32_t network_worker_threads;   // 0 = conservative default (4), max 16
+    uint32_t network_retry_count;      // max 5
+    uint32_t network_retry_delay_ms;   // 0 = default (100), max 5000
+    uint32_t network_reserved;         // must be zero
 } SmonScanOptions;
 
 typedef struct SmonCapabilities {

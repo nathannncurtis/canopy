@@ -80,8 +80,11 @@ ScanHandle WINAPI Smon_BeginScanEx(const wchar_t* path,
     }
     constexpr uint32_t legacy_options_size =
         static_cast<uint32_t>(offsetof(SmonScanOptions, traversal_policy_version));
+    constexpr uint32_t traversal_options_size =
+        static_cast<uint32_t>(offsetof(SmonScanOptions, network_worker_threads));
     if (options && (options->struct_size < legacy_options_size ||
-                    (options->struct_size > legacy_options_size &&
+                    (options->struct_size > legacy_options_size && options->struct_size < traversal_options_size) ||
+                    (options->struct_size > traversal_options_size &&
                      options->struct_size < sizeof(SmonScanOptions)))) {
         SetLastError(ERROR_INSUFFICIENT_BUFFER);
         return nullptr;
@@ -116,12 +119,22 @@ ScanHandle WINAPI Smon_BeginScanEx(const wchar_t* path,
             SetLastError(ERROR_INVALID_FLAGS);
             return nullptr;
         }
-        if (options->struct_size >= sizeof(SmonScanOptions) &&
+        if (options->struct_size >= traversal_options_size &&
             ((options->traversal_policy_version != 0 &&
               options->traversal_policy_version != 1) || options->reserved != 0)) {
             delete ctx;
             SetLastError(ERROR_INVALID_PARAMETER);
             return nullptr;
+        }
+        if (options->struct_size >= sizeof(SmonScanOptions)) {
+            if (options->network_reserved != 0) {
+                delete ctx; SetLastError(ERROR_INVALID_PARAMETER); return nullptr;
+            }
+            ctx->options.network_worker_threads = options->network_worker_threads == 0
+                ? 4 : options->network_worker_threads;
+            ctx->options.network_retry_count = options->network_retry_count;
+            ctx->options.network_retry_delay_ms = options->network_retry_delay_ms == 0
+                ? 100 : options->network_retry_delay_ms;
         }
         ctx->options.max_depth = options->max_depth == 0 ? UINT32_MAX : options->max_depth;
         ctx->options.worker_threads = options->worker_threads;

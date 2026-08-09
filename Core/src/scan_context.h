@@ -31,6 +31,8 @@ struct ScanContext {
     bool               cloud_backed = false;
     bool               rolled_up   = false; // guard: RollupSizes must run exactly once
     std::wstring       scan_root;
+    std::wstring       display_root;
+    bool               network_scan = false;
     std::atomic<DWORD> phase = SMON_SCAN_PHASE_DISCOVERY;
     std::atomic<uint64_t> dirs_visited = 0;
     std::atomic<uint64_t> files_visited = 0;

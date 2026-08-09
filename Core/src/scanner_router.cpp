@@ -3,6 +3,8 @@
 #include "mft_scanner.h"
 #include "dir_scanner.h"
 #include "filesystem_policy.h"
+#include "network_scan_policy.h"
+#include <winnetwk.h>
 #include <cstring>
 
 bool RouterIsNtfs(const wchar_t* path)
@@ -44,13 +46,27 @@ bool RouterBeginScan(ScanContext* ctx, const wchar_t* path)
     if (!ctx || !path)
         return false;
 
-    std::wstring normalized = NormalizeExtendedPath(path);
+    ctx->display_root = path;
+    std::wstring resolved(path);
+    if (resolved.size() >= 2 && resolved[1] == L':') {
+        wchar_t drive[] = { resolved[0], L':', L'\0' };
+        DWORD length = 0;
+        if (WNetGetConnectionW(drive, nullptr, &length) == ERROR_MORE_DATA && length > 1) {
+            std::wstring remote(length, L'\0');
+            if (WNetGetConnectionW(drive, remote.data(), &length) == NO_ERROR) {
+                remote.resize(wcslen(remote.c_str()));
+                resolved = CombineMappedRemotePath(resolved, remote);
+            }
+        }
+    }
+    std::wstring normalized = NormalizeExtendedPath(resolved);
     if (normalized.empty()) { SetLastError(ERROR_INVALID_NAME); return false; }
     ctx->scan_root = normalized;
     BeginMutationTracking(ctx);
     LPTHREAD_START_ROUTINE thread_proc = nullptr;
 
     bool network = normalized.starts_with(L"\\\\?\\UNC\\");
+    ctx->network_scan = network;
     DWORD attributes = GetFileAttributesW(normalized.c_str());
     ctx->cloud_backed = attributes != INVALID_FILE_ATTRIBUTES && IsCloudPlaceholderAttributes(attributes);
     wchar_t volume_root[MAX_PATH]{};

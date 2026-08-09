@@ -18,6 +18,9 @@ struct ScanOptions {
     bool stay_on_volume = true;
     bool force_directory_scanner = false;
     bool include_alternate_streams = false;
+    uint32_t network_worker_threads = 4;
+    uint32_t network_retry_count = 1;
+    uint32_t network_retry_delay_ms = 100;
     std::vector<std::wstring> excluded_patterns;
     std::vector<std::wstring> excluded_extensions;
 

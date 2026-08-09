@@ -82,6 +82,8 @@ DWORD ScanOptions::Validate() const
 {
     if (minimum_file_size > maximum_file_size) return ERROR_INVALID_PARAMETER;
     if (worker_threads > 32) return ERROR_INVALID_PARAMETER;
+    if (network_worker_threads < 1 || network_worker_threads > 16 ||
+        network_retry_count > 5 || network_retry_delay_ms > 5000) return ERROR_INVALID_PARAMETER;
     return ERROR_SUCCESS;
 }
 
