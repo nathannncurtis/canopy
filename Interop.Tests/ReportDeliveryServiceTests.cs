@@ -74,10 +74,24 @@ public sealed class ReportDeliveryServiceTests
             Content() with { Bytes = new byte[ReportDeliveryService.MaximumReportBytes + 1] }));
     }
 
+    [Fact]
+    public async Task NetworkDeliveryRequiresExplicitConsent()
+    {
+        var service = new ReportDeliveryService(new HttpClient(new RecordingHandler(HttpStatusCode.OK)));
+        ReportDeliveryContent content = Content() with { NetworkTransferConsent = false };
+
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.SendWebhookAsync(new Uri("https://example.test/report"), content,
+                cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains("Explicit consent", error.Message);
+    }
+
     static ReportDeliveryContent Content() => new()
     {
         Bytes = Encoding.UTF8.GetBytes("hello"),
         IdempotencyKey = "run-123",
+        NetworkTransferConsent = true,
     };
 
     sealed class RecordingHandler(HttpStatusCode status, string body = "") : HttpMessageHandler

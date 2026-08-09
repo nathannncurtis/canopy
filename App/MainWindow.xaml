@@ -31,11 +31,18 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
             <ui:TextBox Grid.Column="0"
                         x:Name="_pathBox"
                         PlaceholderText="Enter paths separated by semicolons (local, mapped, or \\server\share)" />
+            <Border x:Name="_pathPrivacyMask" Grid.Column="0" Panel.ZIndex="10"
+                    Background="#FF303030" CornerRadius="4" Padding="10,5"
+                    IsHitTestVisible="False">
+                <TextBlock Text="Sensitive paths hidden for screenshots" Foreground="White"
+                           VerticalAlignment="Center" />
+            </Border>
 
             <ui:Button Grid.Column="1"
                        x:Name="_btnScan"
@@ -80,6 +87,10 @@
                           ToolTip="Running without elevation (MFT scan unavailable)"
                           Margin="8,0,0,0"
                           VerticalAlignment="Center" />
+            <CheckBox Grid.Column="6" x:Name="_screenshotPrivacyToggle"
+                      Content="Screenshot privacy" IsChecked="True"
+                      Margin="12,0,0,0" VerticalAlignment="Center"
+                      Checked="OnScreenshotPrivacyChanged" Unchecked="OnScreenshotPrivacyChanged" />
         </Grid>
 
         <Expander Grid.Row="2" Header="Scan options" Margin="12,0,12,8">
@@ -248,6 +259,15 @@
                               Margin="0,4,0,0" Appearance="Secondary"
                               TextTrimming="CharacterEllipsis" />
             </Grid>
+        </Border>
+        <Border x:Name="_screenshotPrivacyOverlay" Grid.Row="2" Grid.RowSpan="3"
+                Panel.ZIndex="100" Background="#FFF3F3F3" IsHitTestVisible="False">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock Text="Screenshot privacy is on" FontSize="24" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="Paths, filenames, scan options, and results are masked."
+                           Margin="0,8,0,0" Opacity="0.7" />
+            </StackPanel>
         </Border>
     </Grid>
 </ui:FluentWindow>

@@ -56,6 +56,18 @@ public sealed class ScanResultExportService
         if (cancellationToken.IsCancellationRequested)
             return new(ScanResultExportStatus.Cancelled);
         string destinationPath = Path.GetFullPath(dialog.FileName);
+        if (IsNetworkDestination(destinationPath))
+        {
+            MessageBoxResult consent = owner is null
+                ? MessageBox.Show(
+                    "This export contains filenames and paths and will be written to a network location. Continue?",
+                    "Consent required for network export", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+                : MessageBox.Show(owner,
+                    "This export contains filenames and paths and will be written to a network location. Continue?",
+                    "Consent required for network export", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (consent != MessageBoxResult.Yes)
+                return new(ScanResultExportStatus.Cancelled);
+        }
         ScanResultExportFormat format = SelectFormat(destinationPath, dialog.FilterIndex);
         string directory = Path.GetDirectoryName(destinationPath)
             ?? throw new InvalidOperationException("The selected export path has no parent directory.");
@@ -152,5 +164,17 @@ public sealed class ScanResultExportService
             4 => ScanResultExportFormat.Html,
             _ => ScanResultExportFormat.Csv,
         };
+    }
+
+    static bool IsNetworkDestination(string path)
+    {
+        if (path.StartsWith(@"\\", StringComparison.Ordinal) ||
+            path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+            return true;
+        string? root = Path.GetPathRoot(path);
+        if (string.IsNullOrEmpty(root)) return false;
+        try { return new DriveInfo(root).DriveType == DriveType.Network; }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
     }
 }
