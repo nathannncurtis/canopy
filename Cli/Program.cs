@@ -29,6 +29,19 @@ public static class Program
         Console.CancelKeyPress += cancelHandler;
         try
         {
+            if (options.BenchmarkRuns > 0)
+            {
+                ScanBenchmarkResult benchmark = await ScanBenchmark.RunAsync(options.Paths[0],
+                    new ScanBenchmarkOptions
+                    {
+                        WarmupRuns = options.WarmupRuns,
+                        MeasuredRuns = options.BenchmarkRuns,
+                        ScanOptions = options.ScanOptions,
+                    }, cancellation.Token);
+                if (options.Json) Console.WriteLine(JsonSerializer.Serialize(benchmark));
+                else WriteBenchmark(benchmark);
+                return benchmark.DatasetChanged ? PartialFailure : Success;
+            }
             await using var session = new MultiScanSession(options.Concurrency);
             IReadOnlyList<TargetScanOutcome> outcomes = await session.ScanOutcomesAsync(
                 options.Paths, cancellationToken: cancellation.Token, options: options.ScanOptions);
@@ -111,13 +124,25 @@ public static class Program
         if (output is not null) Console.WriteLine($"Exported: {Path.GetFullPath(output)}");
     }
 
+    static void WriteBenchmark(ScanBenchmarkResult result)
+    {
+        Console.WriteLine($"Dataset: {result.DatasetIdentity} ({(result.DatasetChanged ? "changed between runs" : "stable")})");
+        Console.WriteLine($"Scanner: {result.Scanner}; {result.Runs.Count} measured runs");
+        Console.WriteLine($"Median: {result.MedianSeconds:F3}s; p95: {result.P95Seconds:F3}s; " +
+                          $"throughput: {result.MedianBytesPerSecond / (1024 * 1024):F1} MiB/s");
+        Console.WriteLine($"Machine: {result.OperatingSystem}; {result.Architecture}; " +
+                          $"{result.LogicalProcessors} logical processors; {result.Runtime}");
+    }
+
     internal sealed record Options(IReadOnlyList<string> Paths, int Concurrency, bool Json,
-        string? OutputPath, string Format, ScanOptions? ScanOptions, bool Help)
+        string? OutputPath, string Format, ScanOptions? ScanOptions, bool Help,
+        int BenchmarkRuns, int WarmupRuns)
     {
         public static Options Parse(string[] args)
         {
             var paths = new List<string>(); var patterns = new List<string>(); var extensions = new List<string>();
             int concurrency = 2; bool json = false, help = false, forceDirectory = false;
+            int benchmarkRuns = 0, warmupRuns = 1;
             bool includeHidden = true, includeSystem = true, includeTemporary = true, includeReparse = true;
             uint? depth = null, workers = null; ulong minimum = 0; ulong? maximum = null;
             string? output = null; string format = "json";
@@ -142,6 +167,8 @@ public static class Program
                     case "--exclude-temporary": includeTemporary = false; break;
                     case "--exclude-reparse": includeReparse = false; break;
                     case "--force-directory": forceDirectory = true; break;
+                    case "--benchmark": benchmarkRuns = ParsePositiveInt(Next(), arg, 30); break;
+                    case "--warmup": warmupRuns = ParseNonNegativeInt(Next(), arg, 10); break;
                     case "-o" or "--output": output = Next(); break;
                     case "--format": format = Next().ToLowerInvariant(); break;
                     default: if (arg.StartsWith('-')) throw new ArgumentException($"Unknown option '{arg}'."); else paths.Add(arg); break;
@@ -150,16 +177,25 @@ public static class Program
             if (!help && paths.Count == 0) throw new ArgumentException("At least one scan path is required.");
             if (output is not null && format is not ("csv" or "json" or "xml" or "html"))
                 throw new ArgumentException("--format must be csv, json, xml, or html.");
+            if (benchmarkRuns > 0 && benchmarkRuns < 2)
+                throw new ArgumentException("--benchmark requires at least 2 measured runs.");
+            if (benchmarkRuns > 0 && paths.Count != 1)
+                throw new ArgumentException("Benchmark mode requires exactly one scan path.");
+            if (benchmarkRuns > 0 && output is not null)
+                throw new ArgumentException("Benchmark mode cannot be combined with result export.");
             var scan = new ScanOptions { MaximumDepth = depth, WorkerThreads = workers, MinimumFileSize = minimum,
                 MaximumFileSize = maximum, IncludeHidden = includeHidden, IncludeSystem = includeSystem,
                 IncludeTemporary = includeTemporary, IncludeReparsePoints = includeReparse,
                 ForceDirectoryScanner = forceDirectory, ExcludedPatterns = patterns, ExcludedExtensions = extensions };
             scan.Validate();
-            return new(paths, concurrency, json, output, format, scan, help);
+            return new(paths, concurrency, json, output, format, scan, help, benchmarkRuns, warmupRuns);
         }
         static int ParsePositiveInt(string text, string option, int max) =>
             int.TryParse(text, out int value) && value is > 0 && value <= max ? value :
                 throw new ArgumentException($"{option} must be between 1 and {max}.");
+        static int ParseNonNegativeInt(string text, string option, int max) =>
+            int.TryParse(text, out int value) && value is >= 0 && value <= max ? value :
+                throw new ArgumentException($"{option} must be between 0 and {max}.");
         static ulong ParseSize(string text, string option) => ByteSizeParser.TryParse(text, out ulong value) ? value :
             throw new ArgumentException($"{option} is not a valid byte size.");
     }
@@ -178,6 +214,8 @@ Usage: canopy-cli [options] <path> [path ...]
       --workers N            Directory scanner workers (1-32)
       --exclude-hidden|--exclude-system|--exclude-temporary|--exclude-reparse
       --force-directory      Do not select the MFT scanner
+      --benchmark N          Run a read-only benchmark with N measured runs (2-30)
+      --warmup N             Warmup runs before measurement (0-10; default 1)
   -o, --output FILE          Atomically export combined successful results
       --format FORMAT        csv, json, xml, or html (default json)
 

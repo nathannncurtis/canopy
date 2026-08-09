@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
 project(SizeMonitorCore CXX ASM_MASM)
 
+option(SMON_ENABLE_AVX2_SUM "Enable measured AVX2 raw-assembly sum dispatch" OFF)
+
 include(CTest)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -74,6 +76,9 @@ add_custom_command(TARGET scan_test POST_BUILD
             "$<TARGET_FILE_DIR:scan_test>"
     COMMENT "Copying Canopy.Core.dll beside scan_test"
 )
+if(SMON_ENABLE_AVX2_SUM)
+    target_compile_definitions(Canopy.Core PRIVATE SMON_ENABLE_AVX2_SUM=1)
+endif()
 target_compile_definitions(scan_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 if(MSVC)
     target_compile_options(scan_test PRIVATE /W4 /utf-8)
@@ -111,6 +116,9 @@ add_executable(simd_sum_test
 target_link_libraries(simd_sum_test PRIVATE simd_sum_obj)
 target_include_directories(simd_sum_test PRIVATE asm src)
 target_compile_definitions(simd_sum_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+if(SMON_ENABLE_AVX2_SUM)
+    target_compile_definitions(simd_sum_test PRIVATE SMON_ENABLE_AVX2_SUM=1)
+endif()
 if(MSVC)
     target_compile_options(simd_sum_test PRIVATE /W4 /WX /utf-8)
 endif()
