@@ -14,6 +14,7 @@ public partial class CleanupRulesView : UserControl
     CancellationTokenSource? _previewCancellation;
     ScanResultManaged? _result;
     CleanupPreview? _preview;
+    CleanupFindingNavigator? _navigator;
     long _generation;
 
     public event Action<uint>? NodeActivated;
@@ -29,7 +30,9 @@ public partial class CleanupRulesView : UserControl
         CancelPreview();
         _result = result;
         _preview = null;
+        _navigator = null;
         _items.ItemsSource = null;
+        UpdateNavigatorButtons();
         _status.Text = result is null
             ? "Load or paste rules, then run a scan to preview."
             : $"Ready to preview rules against {result.Nodes.Length:N0} scan items.";
@@ -84,7 +87,9 @@ public partial class CleanupRulesView : UserControl
     {
         CancelPreview();
         _preview = null;
+        _navigator = null;
         _items.ItemsSource = null;
+        UpdateNavigatorButtons();
         var cancellation = new CancellationTokenSource();
         CancellationToken token = cancellation.Token;
         _previewCancellation = cancellation;
@@ -106,7 +111,9 @@ public partial class CleanupRulesView : UserControl
                 () => CleanupRuleEngine.Preview(result, rules, token), token);
             if (generation != Volatile.Read(ref _generation) || token.IsCancellationRequested) return;
             _preview = preview;
+            _navigator = new CleanupFindingNavigator(preview);
             ApplyFilters();
+            UpdateNavigatorButtons();
         }
         catch (OperationCanceledException)
         {
@@ -167,6 +174,51 @@ public partial class CleanupRulesView : UserControl
             ItemsControl.ContainerFromElement(_items, source) is DataGridRow &&
             _items.SelectedItem is CleanupPreviewRow item)
             NodeActivated?.Invoke(item.NodeIndex);
+    }
+
+    void OnItemSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_preview is null || _items.SelectedItem is not CleanupPreviewRow row)
+        {
+            _explanation.Text = "Select a recommendation to see why it matched and what to review.";
+            return;
+        }
+        CleanupPreviewItem? item = _preview.Items.FirstOrDefault(value => value.NodeIndex == row.NodeIndex);
+        if (item is null) return;
+        CleanupRecommendationExplanation explanation = CleanupRecommendationExplainer.Explain(item);
+        _explanation.Text = explanation.Summary + " Why: " + string.Join(" ", explanation.Reasons) +
+            " Review: " + string.Join(" ", explanation.Limitations);
+    }
+
+    void OnNextLargestFinding(object sender, RoutedEventArgs e) =>
+        RevealFinding(_navigator?.RevealNextLargest());
+
+    void OnPreviousFinding(object sender, RoutedEventArgs e) =>
+        RevealFinding(_navigator?.MovePrevious());
+
+    void RevealFinding(CleanupPreviewItem? finding)
+    {
+        if (finding is null) { UpdateNavigatorButtons(); return; }
+        _riskFilter.SelectedIndex = 0;
+        _ruleFilter.Text = string.Empty;
+        _reasonFilter.Text = string.Empty;
+        ApplyFilters();
+        CleanupPreviewRow? row = (_items.ItemsSource as IEnumerable<CleanupPreviewRow>)?
+            .FirstOrDefault(value => value.NodeIndex == finding.NodeIndex);
+        if (row is not null)
+        {
+            _items.SelectedItem = row;
+            _items.ScrollIntoView(row);
+        }
+        NodeActivated?.Invoke(finding.NodeIndex);
+        UpdateNavigatorButtons();
+    }
+
+    void UpdateNavigatorButtons()
+    {
+        if (_nextLargestFinding is null || _previousFinding is null) return;
+        _nextLargestFinding.IsEnabled = _navigator?.CanRevealNext == true;
+        _previousFinding.IsEnabled = _navigator?.CanMovePrevious == true;
     }
 
     void CancelPreview()
