@@ -107,6 +107,40 @@ public static class ShellLaunchPlans
     }
 }
 
+public sealed record PathTransferPlan(IReadOnlyList<string> Accepted, IReadOnlyList<string> Rejected);
+public enum DroppedScanAction { NoValidTargets, StartNow, StageUntilIdle }
+
+public static class PathTransfers
+{
+    public static DroppedScanAction DecideScanAction(PathTransferPlan plan, bool scanInProgress)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        if (plan.Accepted.Count == 0) return DroppedScanAction.NoValidTargets;
+        return scanInProgress ? DroppedScanAction.StageUntilIdle : DroppedScanAction.StartNow;
+    }
+
+    public static PathTransferPlan Validate(IEnumerable<string> paths, Func<string, bool> exists)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(exists);
+        var accepted = new List<string>();
+        var rejected = new List<string>();
+        foreach (string candidate in paths)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(candidate);
+                if (exists(fullPath)) accepted.Add(fullPath); else rejected.Add(candidate);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                rejected.Add(candidate);
+            }
+        }
+        return new(accepted.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), rejected);
+    }
+}
+
 public static class ResultSelectionFormatter
 {
     public static string ToText(ResultSelectionSummary selection)

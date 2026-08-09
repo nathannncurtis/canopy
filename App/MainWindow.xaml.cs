@@ -67,6 +67,7 @@ public partial class MainWindow : FluentWindow
         _treeView.NodeSelected += OnTreeNodeSelected;
         _treeView.NodeActivated += OnTreeNodeActivated;
         _treeView.MultiSelectionChanged += OnMultiSelectionChanged;
+        _treeView.FileDragRequested += OnFileDragRequested;
         _shellActionsMenu = new ShellItemActionsMenu();
         _shellActionsMenu.ActionFailed += OnShellActionFailed;
         _treeView.ContextMenu = _shellActionsMenu;
@@ -1126,6 +1127,10 @@ public partial class MainWindow : FluentWindow
             {
                 if (action == SelectionAction.OpenContaining)
                     ShellItemActions.OpenContainingFolder(item.Path);
+                else if (action == SelectionAction.Properties)
+                    ShellItemActions.ShowProperties(item.Path);
+                else if (action == SelectionAction.ElevatedTerminal)
+                    ShellItemActions.OpenElevatedTerminal(item.Path);
                 else if (item.IsDirectory)
                     ShellItemActions.OpenFolder(item.Path);
                 else
@@ -1135,18 +1140,68 @@ public partial class MainWindow : FluentWindow
             foreach (ResultSelectionActionFailure failure in outcome.Failures)
                 Logger.Error($"selection action failed for '{failure.Path}'",
                     new IOException(failure.Error));
+            string completedVerb = action switch
+            {
+                SelectionAction.Properties => "Showed properties for",
+                SelectionAction.ElevatedTerminal => "Opened terminals for",
+                _ => "Opened",
+            };
             _statCurrent.Text = outcome.Failures.Count == 0
-                ? $"Opened {outcome.Succeeded:N0} selected item(s)."
-                : $"Opened {outcome.Succeeded:N0} of {outcome.Requested:N0}; " +
+                ? $"{completedVerb} {outcome.Succeeded:N0} selected item(s)."
+                : $"{completedVerb} {outcome.Succeeded:N0} of {outcome.Requested:N0}; " +
                   $"{outcome.Failures.Count:N0} unavailable. {outcome.Failures[0].Error}";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
                                       ArgumentException or InvalidOperationException or
-                                      System.Runtime.InteropServices.COMException)
+                                      Win32Exception or System.Runtime.InteropServices.COMException)
         {
             Logger.Error("selection action failed", ex);
             _statCurrent.Text = $"Selection action failed: {ex.Message}";
         }
+    }
+
+    void OnFileDragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    void OnFileDrop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths) return;
+        PathTransferPlan plan = PathTransfers.Validate(paths, path => File.Exists(path) || Directory.Exists(path));
+        if (plan.Accepted.Count > 0) _pathBox.Text = string.Join(';', plan.Accepted);
+        DroppedScanAction action = PathTransfers.DecideScanAction(plan, _scanInProgress);
+        string rejected = plan.Rejected.Count == 0
+            ? string.Empty
+            : $" Skipped {plan.Rejected.Count:N0} invalid or unavailable target(s).";
+        if (action == DroppedScanAction.StartNow)
+        {
+            OnScan(this, new RoutedEventArgs());
+            if (_scanInProgress)
+                _statCurrent.Text = $"Started scan from {plan.Accepted.Count:N0} dropped target(s).{rejected}";
+        }
+        else if (action == DroppedScanAction.StageUntilIdle)
+            _statCurrent.Text = $"Scan already active; staged {plan.Accepted.Count:N0} dropped target(s).{rejected}";
+        else
+            _statCurrent.Text = $"No valid dropped scan targets.{rejected}";
+        e.Handled = true;
+    }
+
+    void OnFileDragRequested(ResultSelectionSummary selection)
+    {
+        PathTransferPlan plan = PathTransfers.Validate(selection.Items.Select(item => item.Path),
+            path => File.Exists(path) || Directory.Exists(path));
+        if (plan.Accepted.Count == 0)
+        {
+            _statCurrent.Text = $"Cannot drag {plan.Rejected.Count:N0} stale or unavailable selected item(s).";
+            return;
+        }
+        var data = new DataObject(DataFormats.FileDrop, plan.Accepted.ToArray());
+        DragDrop.DoDragDrop(_treeView!, data, DragDropEffects.Copy);
+        _statCurrent.Text = plan.Rejected.Count == 0
+            ? $"Dragged {plan.Accepted.Count:N0} selected item(s)."
+            : $"Dragged {plan.Accepted.Count:N0}; skipped {plan.Rejected.Count:N0} stale item(s).";
     }
 
     void OnSearchNodeActivated(uint nodeIndex)

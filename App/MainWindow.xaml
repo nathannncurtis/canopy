@@ -10,6 +10,7 @@
         WindowBackdropType="Mica"
         WindowCornerPreference="Round"
         FontSize="{DynamicResource Canopy.FontSize}"
+        AllowDrop="True" DragOver="OnFileDragOver" Drop="OnFileDrop"
         Foreground="{DynamicResource Canopy.WindowForegroundBrush}"
         Background="{DynamicResource Canopy.WindowBackgroundBrush}">
 
