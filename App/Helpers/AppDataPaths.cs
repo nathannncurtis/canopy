@@ -18,4 +18,5 @@ public static class AppDataPaths
     public static string TourCompletion => Path.Combine(DataDirectory, "tour-completed-v1");
     public static string DriveHistory => Path.Combine(DataDirectory, "drive-history.json");
     public static string CleanupQueue => Path.Combine(DataDirectory, "cleanup-queue.json");
+    public static string WorkspaceLayout => Path.Combine(DataDirectory, "workspace-layout.json");
 }
