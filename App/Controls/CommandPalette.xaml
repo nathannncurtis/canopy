@@ -1,0 +1,23 @@
+<UserControl x:Class="SizeMonitor.Controls.CommandPalette"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             AutomationProperties.Name="Command palette">
+    <Border Padding="12" CornerRadius="8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <ui:TextBox x:Name="_query" PlaceholderText="Type a command…" TextChanged="OnQueryChanged"
+                        KeyDown="OnQueryKeyDown" AutomationProperties.Name="Search commands" />
+            <ListBox x:Name="_results" Grid.Row="1" Margin="0,8" SelectionMode="Single"
+                     MouseDoubleClick="OnResultDoubleClick" KeyDown="OnResultKeyDown"
+                     VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                     AutomationProperties.Name="Available commands">
+                <ListBox.ItemTemplate><DataTemplate><Grid Margin="4"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel><TextBlock Text="{Binding Command.Title}" FontWeight="SemiBold"/><TextBlock Text="{Binding Command.Description}" Opacity="0.7"/></StackPanel>
+                    <TextBlock Grid.Column="1" Text="{Binding EffectiveShortcut}" Margin="16,0,0,0" VerticalAlignment="Center" FontFamily="Consolas"/>
+                </Grid></DataTemplate></ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock x:Name="_status" Grid.Row="2" Opacity="0.7" AutomationProperties.LiveSetting="Polite" />
+        </Grid>
+    </Border>
+</UserControl>
