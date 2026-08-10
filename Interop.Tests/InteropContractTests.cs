@@ -33,13 +33,15 @@ public sealed class InteropContractTests
         Assert.Equal(0x80ul, (ulong)CoreCapability.Arm64Intrinsics);
         Assert.Equal(0x100ul, (ulong)CoreCapability.RouteInfo);
         Assert.Equal(0x200ul, (ulong)CoreCapability.NodeMetadata);
+        Assert.Equal(0x400ul, (ulong)CoreCapability.BulkNodeMetadata);
         Assert.Equal(24, Marshal.SizeOf<SmonCapabilitiesNative>());
         Assert.Equal(8, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.Flags)).ToInt32());
         Assert.Equal(16, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.MaxNodes)).ToInt32());
         Assert.Equal(20, Marshal.OffsetOf<SmonCapabilitiesNative>(nameof(SmonCapabilitiesNative.MaxNameBytes)).ToInt32());
         Assert.Equal(IntPtr.Size == 8 ? 72 : 64, Marshal.SizeOf<SmonScanOptionsNative>());
         Assert.Equal(24, Marshal.SizeOf<SmonRouteInfoNative>());
-        Assert.Equal(48, Marshal.SizeOf<SmonNodeMetadataNative>());
+        Assert.Equal(56, Marshal.SizeOf<SmonNodeMetadataNative>());
+        Assert.Equal(48, Marshal.OffsetOf<SmonNodeMetadataNative>(nameof(SmonNodeMetadataNative.LastWriteFileTime)).ToInt32());
     }
 
     [Theory]

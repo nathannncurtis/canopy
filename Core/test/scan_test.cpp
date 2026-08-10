@@ -207,9 +207,19 @@ int wmain(int argc, wchar_t* argv[])
                GetLastError() == ERROR_INVALID_PARAMETER,
                L"bulk metadata rejects null destination") ||
         !Check(!Smon_CopyNodeMetadata(filtered_handle, nullptr, 0,
-                                      sizeof(SmonNodeMetadata) - 1, &metadata_count) &&
+                                      offsetof(SmonNodeMetadata, last_write_filetime) - 1, &metadata_count) &&
                GetLastError() == ERROR_INVALID_PARAMETER,
                L"bulk metadata validates element size")) return 1;
+    constexpr uint32_t legacy_metadata_size =
+        static_cast<uint32_t>(offsetof(SmonNodeMetadata, last_write_filetime));
+    std::vector<unsigned char> legacy_copied(
+        static_cast<size_t>(metadata_count) * legacy_metadata_size);
+    if (!Check(Smon_CopyNodeMetadata(filtered_handle,
+                                     reinterpret_cast<SmonNodeMetadata*>(legacy_copied.data()),
+                                     metadata_count, legacy_metadata_size, &metadata_count),
+               L"bulk metadata supports the legacy element prefix") ||
+        !Check(*reinterpret_cast<const uint32_t*>(legacy_copied.data()) == sizeof(SmonNodeMetadata),
+               L"legacy bulk metadata reports the current struct size")) return 1;
     std::vector<SmonNodeMetadata> copied(metadata_count);
     if (metadata_count > 1 &&
         !Check(!Smon_CopyNodeMetadata(filtered_handle, copied.data(), metadata_count - 1,

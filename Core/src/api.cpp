@@ -339,7 +339,9 @@ BOOL WINAPI Smon_CopyNodeMetadata(ScanHandle h, SmonNodeMetadata* metadata,
                                   uint32_t capacity, uint32_t element_size,
                                   uint32_t* required_count)
 {
-    if (!h || !required_count || element_size != sizeof(SmonNodeMetadata)) {
+    constexpr uint32_t legacy_element_size =
+        static_cast<uint32_t>(offsetof(SmonNodeMetadata, last_write_filetime));
+    if (!h || !required_count || element_size < legacy_element_size) {
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
     }
@@ -358,8 +360,19 @@ BOOL WINAPI Smon_CopyNodeMetadata(ScanHandle h, SmonNodeMetadata* metadata,
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
     }
-    if (count != 0)
-        std::memcpy(metadata, ctx->node_metadata.data(), sizeof(SmonNodeMetadata) * count);
+    if (count != 0 && element_size > SIZE_MAX / count) {
+        SetLastError(ERROR_ARITHMETIC_OVERFLOW);
+        return FALSE;
+    }
+    for (uint32_t index = 0; index < count; ++index) {
+        auto* destination = reinterpret_cast<unsigned char*>(metadata) +
+            static_cast<size_t>(index) * element_size;
+        std::memset(destination, 0, element_size);
+        SmonNodeMetadata value = ctx->node_metadata[index];
+        value.struct_size = sizeof(value);
+        std::memcpy(destination, &value,
+            element_size < sizeof(value) ? element_size : sizeof(value));
+    }
     SetLastError(ERROR_SUCCESS);
     return TRUE;
 }

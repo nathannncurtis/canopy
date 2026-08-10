@@ -23,6 +23,7 @@ public sealed class ScanSnapshotStoreTests
             Assert.Equal(expected.FileCount, actual.FileCount);
             Assert.Equal(expected.DirCount, actual.DirCount);
             Assert.Equal(expected.ElapsedSec, actual.ElapsedSec);
+            Assert.Equal(expected.Metadata, actual.Metadata);
         }
         finally { File.Delete(path); }
     }
@@ -71,6 +72,33 @@ public sealed class ScanSnapshotStoreTests
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(8, 4), 99);
             await File.WriteAllBytesAsync(path, bytes, token);
             await Assert.ThrowsAsync<InvalidDataException>(() => ScanSnapshotStore.LoadAsync(path, token));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task LoadsVersionOneSnapshotsWithoutMetadata()
+    {
+        CancellationToken token = TestContext.Current.CancellationToken;
+        string path = TempPath();
+        try
+        {
+            await ScanSnapshotStore.SaveAsync(path, Result(), token);
+            byte[] current = await File.ReadAllBytesAsync(path, token);
+            int position = 48;
+            uint count = BinaryPrimitives.ReadUInt32LittleEndian(current.AsSpan(12, 4));
+            for (uint i = 0; i < count; i++)
+            {
+                uint nameBytes = BinaryPrimitives.ReadUInt32LittleEndian(current.AsSpan(position + 32, 4));
+                position = checked(position + 36 + (int)nameBytes);
+            }
+            byte[] legacy = current[..position];
+            BinaryPrimitives.WriteUInt32LittleEndian(legacy.AsSpan(8, 4), 1);
+            await File.WriteAllBytesAsync(path, legacy, token);
+
+            ScanResultManaged loaded = await ScanSnapshotStore.LoadAsync(path, token);
+            Assert.Equal(Result().Nodes, loaded.Nodes);
+            Assert.Empty(loaded.Metadata);
         }
         finally { File.Delete(path); }
     }
@@ -163,6 +191,12 @@ public sealed class ScanSnapshotStoreTests
         ],
         Names = [@"C:\", "文書", "résumé.txt"],
         TotalBytes = 42, FileCount = 1, DirCount = 2, ElapsedSec = 1.25,
+        Metadata =
+        [
+            new(ScanNodeMetadataFlags.UniqueAllocation, 1, 7, 10, 42, 42, 42, 133_500_000_000_000_000),
+            null,
+            new(ScanNodeMetadataFlags.Compressed, 2, 7, 12, 42, 32, 32, 133_600_000_000_000_000),
+        ],
     };
 
     static ScanNode Node(ulong size, uint parent, uint child, uint sibling, uint flags,

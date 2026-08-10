@@ -160,6 +160,9 @@ DWORD WINAPI DirScanThread(LPVOID param)
         ctx->node_metadata[root_idx].struct_size = sizeof(SmonNodeMetadata);
         ctx->node_metadata[root_idx].flags = SMON_NODE_META_UNIQUE_ALLOCATION;
         ctx->node_metadata[root_idx].link_count = 1;
+        ctx->node_metadata[root_idx].last_write_filetime =
+            (static_cast<uint64_t>(ctx->root_write_time.dwHighDateTime) << 32) |
+            ctx->root_write_time.dwLowDateTime;
     }
 
     // Thread pool setup.
@@ -471,6 +474,7 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                         metadata.link_count = has_file_identity ? file_identity.nNumberOfLinks : 1;
                         metadata.logical_bytes = logical_size;
                         metadata.allocated_bytes = entry_size;
+                        metadata.last_write_filetime = static_cast<uint64_t>(fdi->LastWriteTime.QuadPart);
                         bool unique = !has_file_identity || state->allocations.Account(
                             file_identity.dwVolumeSerialNumber,
                             (static_cast<uint64_t>(file_identity.nFileIndexHigh) << 32) |
@@ -517,6 +521,7 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                             stream_metadata.logical_bytes = stream.size;
                             stream_metadata.allocated_bytes = stream.size;
                             stream_metadata.uniquely_accounted_bytes = unique ? stream.size : 0;
+                            stream_metadata.last_write_filetime = metadata.last_write_filetime;
                             InterlockedIncrement64(
                                 reinterpret_cast<volatile LONG64*>(&state->files_done));
                             InterlockedAdd64(
