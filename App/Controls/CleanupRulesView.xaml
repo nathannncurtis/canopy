@@ -88,6 +88,7 @@
 
         <Border Grid.Row="5" Margin="0,0,0,8" Padding="10" BorderThickness="1" BorderBrush="#44888888">
             <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="2*" /><ColumnDefinition Width="2*" />
                     <ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
@@ -106,6 +107,20 @@
                 <TextBox Grid.Column="4" x:Name="_confirmationThreshold" Width="105" Margin="0,0,8,0"
                          ToolTip="Typed-confirmation threshold in bytes" AutomationProperties.Name="Cleanup confirmation threshold bytes" />
                 <Button Grid.Column="5" Content="Save threshold" Padding="12,4" Click="OnSaveThreshold" />
+                <StackPanel Grid.Row="1" Grid.ColumnSpan="6" Orientation="Horizontal" Margin="0,8,0,0">
+                    <ComboBox x:Name="_cleanupMode" Width="190" SelectedIndex="0" Margin="0,0,8,0"
+                              AutomationProperties.Name="Cleanup operation mode">
+                        <ComboBoxItem Content="Windows Recycle Bin" />
+                        <ComboBoxItem Content="Canopy app-owned recovery" />
+                        <ComboBoxItem Content="Permanent deletion" />
+                    </ComboBox>
+                    <CheckBox x:Name="_recursiveCleanup" Content="Recursive directories" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <Button Content="Preview queued operation" Padding="12,4" Click="OnPreviewQueuedOperation" Margin="0,0,8,0" />
+                    <TextBox x:Name="_operationConfirmation" Width="260" Margin="0,0,8,0"
+                             ToolTip="Type the exact confirmation phrase shown by preview" />
+                    <Button Content="Execute confirmed operation" Padding="12,4" Click="OnExecuteQueuedOperation" />
+                    <Button Content="Undo Canopy recovery" Padding="12,4" Margin="8,0,0,0" Click="OnUndoRecovery" />
+                </StackPanel>
             </Grid>
         </Border>
 
