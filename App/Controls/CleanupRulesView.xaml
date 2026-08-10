@@ -18,6 +18,8 @@
                 <Button Content="Load JSON…" Padding="12,4" Margin="8,0,0,0"
                         Click="OnLoadJson" ToolTip="Load a versioned cleanup rule JSON file"
                         AutomationProperties.Name="Load cleanup rule JSON" />
+                <Button Content="Save validated rules…" Padding="12,4" Margin="8,0,0,0" Click="OnSaveRules"
+                        ToolTip="Validate and save this versioned declarative rule set" />
                 <Button Content="Built-in cleanup scan" Padding="12,4" Margin="8,0,0,0"
                         Click="OnBuiltInPreview" ToolTip="Preview recognized temporary, log, dump, cache, update, and Recycle Bin storage"
                         AutomationProperties.Name="Preview built-in cleanup categories" />
@@ -27,6 +29,8 @@
                 <Button Content="Preview only" Padding="12,4" Margin="8,0,0,0"
                         Click="OnPreview" ToolTip="Evaluate rules without changing the filesystem"
                         AutomationProperties.Name="Preview cleanup rules" />
+                <Button Content="Export audit…" Padding="12,4" Margin="8,0,0,0" Click="OnExportAudit"
+                        ToolTip="Export a deterministic non-destructive cleanup preview report" />
             </StackPanel>
             <TextBlock VerticalAlignment="Center" FontWeight="SemiBold"
                        Text="Versioned cleanup rules (JSON)" />

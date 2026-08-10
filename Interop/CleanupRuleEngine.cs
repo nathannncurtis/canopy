@@ -34,14 +34,20 @@ public sealed record CleanupPreviewItem(
     ulong ReclaimableBytes,
     CleanupRisk Risk,
     IReadOnlyList<string> RuleIds,
-    IReadOnlyList<string> Reasons);
+    IReadOnlyList<string> Reasons,
+    string EstimateBasis = "Logical size fallback");
 
 public sealed record CleanupPreview(
     IReadOnlyList<CleanupPreviewItem> Items,
     ulong ReclaimableBytes,
     int LowRiskCount,
     int MediumRiskCount,
-    int HighRiskCount);
+    int HighRiskCount,
+    bool UsesPhysicalAllocation = false,
+    bool IsPartialEstimate = true);
+public sealed record CleanupRuleCoverage(string RuleId, int MatchCount, ulong EstimatedPotentialBytes);
+public sealed record CleanupAuditReport(int Version, DateTimeOffset GeneratedUtc, CleanupPreview Preview,
+    IReadOnlyList<CleanupRuleCoverage> Rules, IReadOnlyList<string> Warnings);
 
 /// <summary>Evaluates declarative cleanup rules. This type never modifies the filesystem.</summary>
 public static class CleanupRuleEngine
@@ -98,14 +104,25 @@ public static class CleanupRuleEngine
             CompiledRule[] matched = rules.Where(rule => rule.Matches(node, name, paths[index], depths[index])).ToArray();
             if (matched.Length == 0) continue;
             CleanupRisk risk = matched.Max(rule => rule.Source.Risk);
-            items.Add(new(index, paths[index], node.Size, risk,
+            ScanNodeMetadata? metadata = result.GetMetadata(index);
+            bool directory = (node.Flags & ScanNodeFlags.Directory) != 0;
+            ulong estimate = metadata is null ? node.Size : directory ? metadata.AllocatedBytes : metadata.UniquelyAccountedBytes;
+            items.Add(new(index, paths[index], estimate, risk,
                 matched.Select(rule => rule.Source.Id).ToArray(),
-                matched.Select(rule => rule.Source.Reason).Distinct(StringComparer.Ordinal).ToArray()));
-            reclaimable = AddSaturating(reclaimable, node.Size);
+                matched.Select(rule => rule.Source.Reason).Distinct(StringComparer.Ordinal).ToArray(),
+                metadata is null ? "Logical-size fallback; physical allocation metadata unavailable" : directory ? "Unique descendant allocation" : "Uniquely accounted physical allocation"));
             if (risk == CleanupRisk.High) high++; else if (risk == CleanupRisk.Medium) medium++; else low++;
         }
-
-        return new(items, reclaimable, low, medium, high);
+        var matchedIndexes = items.Select(item => item.NodeIndex).ToHashSet();
+        foreach (CleanupPreviewItem item in items)
+        {
+            uint parent = result.Nodes[item.NodeIndex].Parent; bool covered = false;
+            while (parent != NoNode) { if (matchedIndexes.Contains(parent)) { covered = true; break; } parent = result.Nodes[parent].Parent; }
+            if (!covered) reclaimable = AddSaturating(reclaimable, item.ReclaimableBytes);
+        }
+        bool physical = items.Count > 0 && items.All(item => result.GetMetadata(item.NodeIndex) is not null);
+        bool partial = items.Any(item => result.GetMetadata(item.NodeIndex) is null);
+        return new(items, reclaimable, low, medium, high, physical, partial);
     }
 
     static void ValidateRules(CleanupRuleSet set)
@@ -127,10 +144,30 @@ public static class CleanupRuleEngine
                 throw new InvalidDataException($"Cleanup rule '{rule.Id}' has invalid extensions.");
             if (rule.PathPattern?.Length > 512 || rule.NamePattern?.Length > 256)
                 throw new InvalidDataException($"Cleanup rule '{rule.Id}' has an oversized pattern.");
+            if (rule.PathPattern is string pathPattern && (Path.IsPathRooted(pathPattern) || pathPattern.Split(['/', '\\']).Any(part => part == "..")))
+                throw new InvalidDataException($"Cleanup rule '{rule.Id}' path pattern must be scan-relative and cannot escape its root.");
             if (rule.PathPattern is null && rule.NamePattern is null && rule.Extensions.Count == 0 &&
                 rule.MinimumSize is null && rule.MaximumSize is null && rule.MinimumDepth is null && rule.MaximumDepth is null)
                 throw new InvalidDataException($"Cleanup rule '{rule.Id}' must contain at least one predicate.");
         }
+    }
+
+    public static CleanupAuditReport Audit(ScanResultManaged result, CleanupRuleSet rules, DateTimeOffset generatedUtc, CancellationToken token = default)
+    {
+        CleanupPreview preview = Preview(result, rules, token);
+        CleanupRuleCoverage[] coverage = rules.Rules.Select(rule =>
+        {
+            CleanupPreviewItem[] matches = preview.Items.Where(item => item.RuleIds.Contains(rule.Id, StringComparer.OrdinalIgnoreCase)).ToArray();
+            ulong bytes = 0; foreach (CleanupPreviewItem item in matches) bytes = AddSaturating(bytes, item.ReclaimableBytes);
+            return new CleanupRuleCoverage(rule.Id, matches.Length, bytes);
+        }).OrderBy(item => item.RuleId, StringComparer.Ordinal).ToArray();
+        string[] warnings = coverage.Where(item => item.MatchCount == 0).Select(item => $"Rule '{item.RuleId}' matched no items.")
+            .Concat(preview.Items.Where(item => item.RuleIds.Count > 1).Select(item => $"'{item.Path}' matched conflicting/overlapping rules: {string.Join(", ", item.RuleIds)}."))
+            .Concat(preview.Items.Where(item => result.Nodes[item.NodeIndex].Parent == NoNode).Select(item => $"'{item.Path}' is a scan root and must not be executed as a cleanup target."))
+            .Concat(preview.Items.Select(item => { try { return CleanupSafetyPolicy.Evaluate(item.Path, item.ReclaimableBytes, ulong.MaxValue).IsBlocked ? $"'{item.Path}' is protected by cleanup safety policy." : null; } catch (ArgumentException) { return null; } }).OfType<string>())
+            .Concat(preview.IsPartialEstimate ? ["Physical allocation metadata was unavailable for one or more matches; estimates are partial/fallback values."] : [])
+            .OrderBy(value => value, StringComparer.Ordinal).ToArray();
+        return new(1, generatedUtc, preview, coverage, warnings);
     }
 
     static CompiledRule Compile(CleanupRule rule) => new(

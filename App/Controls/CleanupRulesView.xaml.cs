@@ -175,6 +175,22 @@ public partial class CleanupRulesView : UserControl
         }
     }
 
+    async void OnSaveRules(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            CleanupRuleEngine.Parse(_ruleJson.Text);
+            var dialog = new SaveFileDialog { Title = "Save validated cleanup rules", Filter = "JSON (*.json)|*.json", DefaultExt = ".json", FileName = "canopy-cleanup-rules.json" };
+            if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+            string full = Path.GetFullPath(dialog.FileName), temporary = full + ".tmp-" + Guid.NewGuid().ToString("N");
+            try { await File.WriteAllTextAsync(temporary, _ruleJson.Text, new UTF8Encoding(false)); File.Move(temporary, full, true); }
+            finally { try { File.Delete(temporary); } catch (IOException) { } }
+            _status.Text = "Saved validated versioned cleanup rules. Saving rules did not preview or execute cleanup.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        { _status.Text = $"Cleanup rules were not saved: {ex.Message}"; }
+    }
+
     void OnPreview(object sender, RoutedEventArgs e)
     {
         ScanResultManaged? result = _result;
@@ -192,6 +208,28 @@ public partial class CleanupRulesView : UserControl
             return;
         }
         StartPreview(result, rules);
+    }
+
+    async void OnExportAudit(object sender, RoutedEventArgs e)
+    {
+        if (_result is null) { _status.Text = "Run a scan before exporting a cleanup audit."; return; }
+        var dialog = new SaveFileDialog { Title = "Export cleanup audit", Filter = "Markdown (*.md)|*.md|JSON (*.json)|*.json", DefaultExt = ".md", FileName = "canopy-cleanup-preview.md" };
+        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+        CancelPreview(); var cancellation = new CancellationTokenSource(); _previewCancellation = cancellation;
+        CancellationToken token = cancellation.Token; long generation = Volatile.Read(ref _generation); ScanResultManaged result = _result;
+        try
+        {
+            CleanupRuleSet rules = CleanupRuleEngine.Parse(_ruleJson.Text); DateTimeOffset generated = DateTimeOffset.UtcNow;
+            (CleanupAuditReport report, string content) = await Task.Run(() => { CleanupAuditReport audit = CleanupRuleEngine.Audit(result, rules, generated, token); string text = Path.GetExtension(dialog.FileName).Equals(".json", StringComparison.OrdinalIgnoreCase) ? CleanupReportExporter.ToJson(audit) : CleanupReportExporter.ToMarkdown(audit); return (audit, text); }, token);
+            if (generation != Volatile.Read(ref _generation) || token.IsCancellationRequested) return;
+            await CleanupReportExporter.WriteAtomicAsync(dialog.FileName, content, token);
+            if (generation != Volatile.Read(ref _generation) || token.IsCancellationRequested) return;
+            _status.Text = $"Exported non-destructive audit for {report.Preview.Items.Count:N0} proposed item(s). Execution still requires separate confirmation.";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        { _status.Text = $"Cleanup audit was not exported: {ex.Message}"; }
+        finally { if (ReferenceEquals(_previewCancellation, cancellation)) _previewCancellation = null; cancellation.Dispose(); }
     }
 
     async void OnBuiltInPreview(object sender, RoutedEventArgs e)
