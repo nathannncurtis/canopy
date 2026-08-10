@@ -21,6 +21,8 @@
         <ui:Button x:Name="_properties" Content="Properties" Tag="Properties" Click="OnAction" Margin="0,0,6,0"
                    IsEnabled="False" ToolTip="Show Windows Properties for selected items" />
         <ui:Button x:Name="_terminal" Content="Admin terminal" Tag="ElevatedTerminal" Click="OnAction"
-                   IsEnabled="False" ToolTip="Open an elevated terminal at each selected location" />
+                   IsEnabled="False" ToolTip="Open an elevated terminal at each selected location" Margin="0,0,6,0" />
+        <ui:Button x:Name="_manage" Content="Manage…" Tag="ManageFiles" Click="OnAction"
+                   IsEnabled="False" ToolTip="Rename, move, compress, decompress, or archive selected items" />
     </DockPanel>
 </UserControl>
