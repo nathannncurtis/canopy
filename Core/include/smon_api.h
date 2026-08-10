@@ -161,6 +161,7 @@ typedef struct SmonNodeMetadata {
     uint64_t logical_bytes;
     uint64_t allocated_bytes;
     uint64_t uniquely_accounted_bytes;
+    uint64_t last_write_filetime; // UTC Windows FILETIME; zero when unavailable
 } SmonNodeMetadata;
 
 // 32 bytes, naturally aligned -- matches C# [StructLayout(LayoutKind.Sequential, Pack=8)]

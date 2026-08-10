@@ -6,7 +6,8 @@ bool FileAllocationTracker::Account(DWORD volume_serial, uint64_t file_id)
 }
 
 SmonNodeMetadata BuildMftNodeMetadata(DWORD volume_serial, uint64_t file_reference,
-    const FILE_STANDARD_INFO& info, bool directory, DWORD file_attributes)
+    const FILE_STANDARD_INFO& info, bool directory, DWORD file_attributes,
+    uint64_t last_write_filetime)
 {
     SmonNodeMetadata metadata{};
     metadata.struct_size = sizeof(metadata);
@@ -20,5 +21,6 @@ SmonNodeMetadata BuildMftNodeMetadata(DWORD volume_serial, uint64_t file_referen
     metadata.logical_bytes = static_cast<uint64_t>(info.EndOfFile.QuadPart);
     metadata.allocated_bytes = directory ? 0 : static_cast<uint64_t>(info.AllocationSize.QuadPart);
     metadata.uniquely_accounted_bytes = metadata.allocated_bytes;
+    metadata.last_write_filetime = last_write_filetime;
     return metadata;
 }

@@ -7,7 +7,8 @@ namespace SizeMonitor.Interop;
 public static class ScanSnapshotStore
 {
     static readonly byte[] Magic = "CANOPY\0S"u8.ToArray();
-    const uint Version = 1;
+    const uint Version = 2;
+    const uint LegacyVersion = 1;
     const uint NoNode = uint.MaxValue;
     // Matches the native node-pool ceiling and prevents corrupt files from requesting
     // multi-gigabyte managed arrays before any node data has been verified.
@@ -59,6 +60,22 @@ public static class ScanSnapshotStore
                     await WriteAsync(stream, name, cancellationToken);
                 }
 
+                await WriteUInt32Async(stream, checked((uint)result.Nodes.Length), cancellationToken);
+                for (int i = 0; i < result.Nodes.Length; i++)
+                {
+                    ScanNodeMetadata? metadata = i < result.Metadata.Length ? result.Metadata[i] : null;
+                    await WriteUInt32Async(stream, metadata is null ? 0u : 1u, cancellationToken);
+                    if (metadata is null) continue;
+                    await WriteUInt32Async(stream, (uint)metadata.Flags, cancellationToken);
+                    await WriteUInt32Async(stream, metadata.LinkCount, cancellationToken);
+                    await WriteUInt32Async(stream, metadata.VolumeSerial, cancellationToken);
+                    await WriteUInt64Async(stream, metadata.FileId, cancellationToken);
+                    await WriteUInt64Async(stream, metadata.LogicalBytes, cancellationToken);
+                    await WriteUInt64Async(stream, metadata.AllocatedBytes, cancellationToken);
+                    await WriteUInt64Async(stream, metadata.UniquelyAccountedBytes, cancellationToken);
+                    await WriteUInt64Async(stream, metadata.LastWriteFileTime, cancellationToken);
+                }
+
                 await stream.FlushAsync(cancellationToken);
             }
 
@@ -85,7 +102,8 @@ public static class ScanSnapshotStore
         await ReadExactlyAsync(stream, magic, cancellationToken);
         if (!magic.AsSpan().SequenceEqual(Magic)) throw new InvalidDataException("Not a Canopy scan snapshot.");
         uint version = await ReadUInt32Async(stream, cancellationToken);
-        if (version != Version) throw new InvalidDataException($"Unsupported scan snapshot version {version}.");
+        if (version != LegacyVersion && version != Version)
+            throw new InvalidDataException($"Unsupported scan snapshot version {version}.");
         uint rawCount = await ReadUInt32Async(stream, cancellationToken);
         if (rawCount > MaxNodes) throw new InvalidDataException("The scan snapshot contains too many nodes.");
         int count = checked((int)rawCount);
@@ -120,12 +138,35 @@ public static class ScanSnapshotStore
             try { names[i] = new UTF8Encoding(false, true).GetString(bytes); }
             catch (DecoderFallbackException ex) { throw new InvalidDataException("A node name is not valid UTF-8.", ex); }
         }
+        ScanNodeMetadata?[] metadata = [];
+        if (version >= 2)
+        {
+            uint metadataCount = await ReadUInt32Async(stream, cancellationToken);
+            if (metadataCount != rawCount)
+                throw new InvalidDataException("The scan snapshot metadata count does not match its node count.");
+            metadata = new ScanNodeMetadata?[count];
+            for (int i = 0; i < count; i++)
+            {
+                uint present = await ReadUInt32Async(stream, cancellationToken);
+                if (present > 1) throw new InvalidDataException("The scan snapshot metadata marker is invalid.");
+                if (present == 0) continue;
+                metadata[i] = new ScanNodeMetadata(
+                    (ScanNodeMetadataFlags)await ReadUInt32Async(stream, cancellationToken),
+                    await ReadUInt32Async(stream, cancellationToken),
+                    await ReadUInt32Async(stream, cancellationToken),
+                    await ReadUInt64Async(stream, cancellationToken),
+                    await ReadUInt64Async(stream, cancellationToken),
+                    await ReadUInt64Async(stream, cancellationToken),
+                    await ReadUInt64Async(stream, cancellationToken),
+                    await ReadUInt64Async(stream, cancellationToken));
+            }
+        }
         if (stream.Position != stream.Length) throw new InvalidDataException("The scan snapshot has trailing data.");
         Validate(nodes, names);
         return new ScanResultManaged
         {
             Nodes = nodes, Names = names, TotalBytes = totalBytes, FileCount = fileCount,
-            DirCount = dirCount, ElapsedSec = elapsed,
+            DirCount = dirCount, ElapsedSec = elapsed, Metadata = metadata,
         };
     }
 

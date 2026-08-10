@@ -21,4 +21,5 @@ public static class AppDataPaths
     public static string WorkspaceLayout => Path.Combine(DataDirectory, "workspace-layout.json");
     public static string AppearancePreferences => Path.Combine(DataDirectory, "appearance.json");
     public static string TreemapPresentation => Path.Combine(DataDirectory, "treemap-presentation.json");
+    public static string StorageDashboard => Path.Combine(DataDirectory, "storage-dashboard.json");
 }

@@ -316,6 +316,7 @@ public partial class MainWindow : FluentWindow
         _cleanupRulesView.SetResult(null);
         _diskUsageSummaryView.SetResult(null);
         _physicalStorageSummaryView.SetAccounting(null);
+        _storageDashboardView.SetResult(null);
         if (_shellActionsMenu is not null) _shellActionsMenu.ItemPath = null;
         _saveSnapshotMenuItem.IsEnabled = false;
         _exportMenuItem.IsEnabled = false;
@@ -957,6 +958,7 @@ public partial class MainWindow : FluentWindow
         _anomaliesView.SetResult(result);
         _cleanupRulesView.SetResult(result);
         _diskUsageSummaryView.SetResult(result, limitations: _summaryLimitations);
+        _storageDashboardView.SetResult(result);
         _physicalStorageSummaryView.SetAccounting(PhysicalStorageAccounting.Calculate(result,
             isPartial: _summaryLimitations.Count > 0 || (targets?.Count ?? 0) != 1));
         _comparisonView.SetResults(_previousResult, result);
@@ -1288,6 +1290,15 @@ public partial class MainWindow : FluentWindow
         _navigationBar.NavigateTo(nodeIndex);
         ActivateNode(nodeIndex);
         _contentTabs.SelectedIndex = 0;
+    }
+
+    void OnDashboardNodeActivated(uint nodeIndex) => OnSummaryNodeActivated(nodeIndex);
+
+    void OnDashboardQuickLocationActivated(string path)
+    {
+        if (_scanInProgress || string.IsNullOrWhiteSpace(path)) return;
+        _pathBox.Text = path;
+        OnScan(_btnScan, new RoutedEventArgs());
     }
 
     void OnComparisonNodeActivated(ComparisonNodeActivation activation)

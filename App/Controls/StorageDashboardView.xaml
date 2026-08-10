@@ -1,0 +1,32 @@
+<UserControl x:Class="SizeMonitor.Controls.StorageDashboardView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" AutomationProperties.Name="Storage dashboard">
+ <UserControl.Resources>
+  <DataTemplate x:Key="BucketChartRow">
+   <Grid Margin="8,5" AutomationProperties.Name="{Binding AccessibleText}">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/><ColumnDefinition Width="190"/></Grid.ColumnDefinitions>
+    <TextBlock Text="{Binding Label}" VerticalAlignment="Center"/>
+    <ProgressBar Grid.Column="1" Height="18" Minimum="0" Maximum="100" Value="{Binding Percentage}"
+                 AutomationProperties.Name="{Binding AccessibleText}"/>
+    <TextBlock Grid.Column="2" Margin="10,0,0,0" VerticalAlignment="Center">
+     <Run Text="{Binding Files, StringFormat={}{0:N0} files}"/><Run Text=" · "/><Run Text="{Binding Bytes, StringFormat={}{0:N0} bytes}"/>
+    </TextBlock>
+   </Grid>
+  </DataTemplate>
+ </UserControl.Resources>
+ <Grid Margin="12"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+  <StackPanel>
+   <TextBlock Text="Storage dashboard" FontSize="22" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level1"/>
+   <WrapPanel Margin="0,8,0,0"><TextBlock Text="Quick locations" VerticalAlignment="Center" Margin="0,0,8,0"/><ItemsControl x:Name="_quick"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel></ItemsControl><TextBox x:Name="_newLocation" Width="230" Margin="8,0" AutomationProperties.Name="New quick location"/><Button Content="Add" Click="OnAddLocation"/><Button Content="Reset" Click="OnResetLocations" Margin="6,0,0,0"/></WrapPanel>
+   <WrapPanel Margin="0,8,0,0"><TextBlock Text="Widgets" VerticalAlignment="Center" Margin="0,0,8,0"/><CheckBox Tag="overview" Content="Overview" Checked="OnWidgetsChanged" Unchecked="OnWidgetsChanged"/><CheckBox Tag="largest-files" Content="Largest files" Margin="8,0,0,0" Checked="OnWidgetsChanged" Unchecked="OnWidgetsChanged"/><CheckBox Tag="largest-folders" Content="Largest folders" Margin="8,0,0,0" Checked="OnWidgetsChanged" Unchecked="OnWidgetsChanged"/><CheckBox Tag="most-files" Content="Most files" Margin="8,0,0,0" Checked="OnWidgetsChanged" Unchecked="OnWidgetsChanged"/><CheckBox Tag="types" Content="Types" Margin="8,0,0,0" Checked="OnWidgetsChanged" Unchecked="OnWidgetsChanged"/><CheckBox Tag="ages" Content="Ages" Margin="8,0,0,0" Checked="OnWidgetsChanged" Unchecked="OnWidgetsChanged"/><CheckBox Tag="sizes" Content="Sizes" Margin="8,0,0,0" Checked="OnWidgetsChanged" Unchecked="OnWidgetsChanged"/></WrapPanel>
+  </StackPanel>
+  <TextBlock Grid.Row="1" x:Name="_status" Margin="0,8" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+  <TabControl Grid.Row="2">
+   <TabItem x:Name="_overviewTab" Header="Overview"><TextBlock x:Name="_overview" Margin="12" TextWrapping="Wrap" AutomationProperties.Name="Drive overview totals"/></TabItem>
+   <TabItem x:Name="_largestFilesTab" Header="Largest files"><DataGrid x:Name="_largestFiles" IsReadOnly="True" AutoGenerateColumns="True" MouseDoubleClick="OnNodeActivated" AutomationProperties.Name="Largest files"/></TabItem>
+   <TabItem x:Name="_largestFoldersTab" Header="Largest folders"><DataGrid x:Name="_largestFolders" IsReadOnly="True" AutoGenerateColumns="True" MouseDoubleClick="OnNodeActivated" AutomationProperties.Name="Largest folders"/></TabItem>
+   <TabItem x:Name="_mostFilesTab" Header="Most files"><DataGrid x:Name="_mostFiles" IsReadOnly="True" AutoGenerateColumns="True" MouseDoubleClick="OnNodeActivated" AutomationProperties.Name="Folders containing the most files"/></TabItem>
+   <TabItem x:Name="_typesTab" Header="File types"><ScrollViewer VerticalScrollBarVisibility="Auto"><ItemsControl x:Name="_types" ItemTemplate="{StaticResource BucketChartRow}" AutomationProperties.Name="File type distribution chart"/></ScrollViewer></TabItem>
+   <TabItem x:Name="_agesTab" Header="File ages"><StackPanel><TextBlock x:Name="_ageNotice" Margin="8" TextWrapping="Wrap"/><ItemsControl x:Name="_ages" ItemTemplate="{StaticResource BucketChartRow}" AutomationProperties.Name="File age distribution chart"/></StackPanel></TabItem>
+   <TabItem x:Name="_sizesTab" Header="Size histogram"><ItemsControl x:Name="_sizes" ItemTemplate="{StaticResource BucketChartRow}" AutomationProperties.Name="File size histogram chart"/></TabItem>
+  </TabControl>
+ </Grid>
+</UserControl>

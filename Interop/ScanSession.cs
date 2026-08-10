@@ -52,7 +52,8 @@ public sealed class ScanSession : IDisposable
         };
         return Native.Smon_GetNodeMetadata(handle, nodeIndex, ref native)
             ? new(native.Flags, native.LinkCount, native.VolumeSerial, native.FileId,
-                native.LogicalBytes, native.AllocatedBytes, native.UniquelyAccountedBytes)
+                native.LogicalBytes, native.AllocatedBytes, native.UniquelyAccountedBytes,
+                native.LastWriteFileTime)
             : null;
     }
 
@@ -202,6 +203,7 @@ public sealed class ScanSession : IDisposable
                         checked((uint)Marshal.SizeOf<SmonNodeMetadataNative>()), out uint required))
                 {
                     int error = Marshal.GetLastPInvokeError();
+                    if (error == 87) return CopyMetadataLegacy(handle, nodeCount);
                     throw new Win32Exception(error, "Could not copy scan node metadata.");
                 }
                 if (required != (uint)nodeCount)
@@ -219,7 +221,8 @@ public sealed class ScanSession : IDisposable
         {
             SmonNodeMetadataNative value = native[index];
             managed[index] = new(value.Flags, value.LinkCount, value.VolumeSerial, value.FileId,
-                value.LogicalBytes, value.AllocatedBytes, value.UniquelyAccountedBytes);
+                value.LogicalBytes, value.AllocatedBytes, value.UniquelyAccountedBytes,
+                value.LastWriteFileTime);
         }
         return managed;
     }
@@ -235,7 +238,8 @@ public sealed class ScanSession : IDisposable
             };
             if (Native.Smon_GetNodeMetadata(handle, index, ref value))
                 metadata[index] = new(value.Flags, value.LinkCount, value.VolumeSerial, value.FileId,
-                    value.LogicalBytes, value.AllocatedBytes, value.UniquelyAccountedBytes);
+                    value.LogicalBytes, value.AllocatedBytes, value.UniquelyAccountedBytes,
+                    value.LastWriteFileTime);
         }
         return metadata;
     }

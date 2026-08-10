@@ -61,7 +61,18 @@ public enum ScanNodeMetadataFlags : uint
 
 public sealed record ScanNodeMetadata(ScanNodeMetadataFlags Flags, uint LinkCount,
     uint VolumeSerial, ulong FileId, ulong LogicalBytes, ulong AllocatedBytes,
-    ulong UniquelyAccountedBytes);
+    ulong UniquelyAccountedBytes, ulong LastWriteFileTime = 0)
+{
+    public DateTimeOffset? LastWriteTimeUtc
+    {
+        get
+        {
+            if (LastWriteFileTime is 0 or > long.MaxValue) return null;
+            try { return DateTimeOffset.FromFileTime((long)LastWriteFileTime); }
+            catch (ArgumentOutOfRangeException) { return null; }
+        }
+    }
+}
 
 [StructLayout(LayoutKind.Sequential)]
 internal struct SmonNodeMetadataNative
@@ -74,6 +85,7 @@ internal struct SmonNodeMetadataNative
     public ulong LogicalBytes;
     public ulong AllocatedBytes;
     public ulong UniquelyAccountedBytes;
+    public ulong LastWriteFileTime;
 }
 
 public sealed record ScanProgress(
