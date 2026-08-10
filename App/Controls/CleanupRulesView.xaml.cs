@@ -19,6 +19,9 @@ public partial class CleanupRulesView : UserControl
     long _generation;
     readonly CleanupQueueStore _queueStore = new(AppDataPaths.CleanupQueue);
     CleanupQueueDocument _queue = new();
+    readonly CleanupOperationService _cleanupOperations = CreateCleanupOperations();
+    CleanupPlan? _operationPlan;
+    CleanupExecutionReport? _lastRecovery;
 
     public event Action<uint>? NodeActivated;
 
@@ -85,6 +88,52 @@ public partial class CleanupRulesView : UserControl
             ? $" Any future destructive workflow must require the exact phrase: {plan.RequiredConfirmation}."
             : string.Empty;
         _status.Text = $"Cleanup queue: {_queue.Items.Count:N0} marked item(s). Planning only; nothing has been changed.{confirmation}";
+    }
+
+    void OnPreviewQueuedOperation(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            CleanupMutationMode mode = _cleanupMode.SelectedIndex switch { 1 => CleanupMutationMode.Recoverable, 2 => CleanupMutationMode.Permanent, _ => CleanupMutationMode.Recycle };
+            _operationPlan = _cleanupOperations.Preview(_queue.Items.Select(item => item.Path), mode, _recursiveCleanup.IsChecked == true);
+            _operationConfirmation.Text = string.Empty;
+            _status.Text = $"Preview: {_operationPlan.Items.Count:N0} target(s), {_operationPlan.EstimatedReclaimedBytes:N0} estimated potentially reclaimable bytes. Type exactly: {_operationPlan.RequiredConfirmation}. No operation has run.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        { _operationPlan = null; _status.Text = $"Operation preview blocked: {ex.Message}"; }
+    }
+
+    async void OnExecuteQueuedOperation(object sender, RoutedEventArgs e)
+    {
+        CleanupPlan? plan = _operationPlan;
+        if (plan is null) { _status.Text = "Preview the queued operation before executing it."; return; }
+        try
+        {
+            CleanupExecutionReport report = await _cleanupOperations.ExecuteAsync(plan, _operationConfirmation.Text);
+            if (plan.Disposition == CleanupMutationMode.Recoverable) _lastRecovery = report;
+            int failed = report.Items.Count(item => item.Outcome is CleanupOutcomeKind.Failed or CleanupOutcomeKind.Stale);
+            _status.Text = $"Operation finished: {report.Items.Count - failed:N0} completed, {failed:N0} failed/stale; plan estimated {report.EstimatedReclaimedBytes:N0} potentially reclaimable bytes. Actual freed disk space was not measured. " +
+                (plan.Disposition switch { CleanupMutationMode.Recycle => "Restore, if needed, through the Windows Recycle Bin; Canopy does not guess shell restore records.", CleanupMutationMode.Recoverable => $"{report.Items.Count(item => item.UndoToken is not null):N0} item(s) have verified Canopy app-owned recovery records.", _ => "Permanent deletion cannot be undone." });
+            _operationPlan = null; _operationConfirmation.Text = string.Empty;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        { _status.Text = $"Operation was not started: {ex.Message}"; }
+    }
+
+    async void OnUndoRecovery(object sender, RoutedEventArgs e)
+    {
+        if (_lastRecovery is null) { _status.Text = "There is no Canopy app-owned recovery operation to undo."; return; }
+        CleanupUndoReport report = await _cleanupOperations.UndoAllAsync(_lastRecovery);
+        int restored = report.Items.Count(item => item.Restored);
+        _status.Text = $"Canopy recovery restore: {restored:N0} restored, {report.Items.Count - restored:N0} failed. Failed items remain in app-owned recovery storage.";
+        if (report.Succeeded) _lastRecovery = null;
+    }
+
+    static CleanupOperationService CreateCleanupOperations()
+    {
+        var fileSystem = new WindowsCleanupFileSystem(); var windows = new WindowsCleanupMutationBackend();
+        var recovery = new RecoveryVaultBackend(fileSystem, windows, path => RecoveryVaultPathResolver.Resolve(path));
+        return new(fileSystem, recovery);
     }
 
     public void SetResult(ScanResultManaged? result)
