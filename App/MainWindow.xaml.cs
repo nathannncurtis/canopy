@@ -315,6 +315,7 @@ public partial class MainWindow : FluentWindow
         _distributionView.SetResult(null);
         _cleanupRulesView.SetResult(null);
         _diskUsageSummaryView.SetResult(null);
+        _physicalStorageSummaryView.SetAccounting(null);
         if (_shellActionsMenu is not null) _shellActionsMenu.ItemPath = null;
         _saveSnapshotMenuItem.IsEnabled = false;
         _exportMenuItem.IsEnabled = false;
@@ -401,6 +402,8 @@ public partial class MainWindow : FluentWindow
                         ScanResultManaged partial = ScanResultCombiner.CombineTargets(partialTargets);
                         _diskUsageSummaryView.SetResult(partial,
                             limitations: [$"Partial preview: {partialTargets.Count:N0} of {update.TotalTargets:N0} targets completed. Final results are not committed yet."]);
+                        _physicalStorageSummaryView.SetAccounting(
+                            PhysicalStorageAccounting.Calculate(partial, isPartial: true));
                         _statSize.Text = $"Partial: {SizeFormatter.FormatBytes(partial.TotalBytes)}";
                     }
                 });
@@ -472,6 +475,8 @@ public partial class MainWindow : FluentWindow
         catch (OperationCanceledException)
         {
             _diskUsageSummaryView.SetResult(_result, limitations: _summaryLimitations);
+            _physicalStorageSummaryView.SetAccounting(_result is null ? null :
+                PhysicalStorageAccounting.Calculate(_result, isPartial: true));
             _statSize.Text          = "Cancelled";
             _statFiles.Text         = "";
             _statTime.Text          = "";
@@ -952,6 +957,8 @@ public partial class MainWindow : FluentWindow
         _anomaliesView.SetResult(result);
         _cleanupRulesView.SetResult(result);
         _diskUsageSummaryView.SetResult(result, limitations: _summaryLimitations);
+        _physicalStorageSummaryView.SetAccounting(PhysicalStorageAccounting.Calculate(result,
+            isPartial: _summaryLimitations.Count > 0 || (targets?.Count ?? 0) != 1));
         _comparisonView.SetResults(_previousResult, result);
         _duplicatesView.SetRoots((targets ?? []).Select(target => target.Path));
         bool hasNodes = result.Nodes.Length > 0;
@@ -974,10 +981,10 @@ public partial class MainWindow : FluentWindow
 
     async Task UpdateVolumeStatusAsync(IReadOnlyList<TargetScanResult> targets, int generation)
     {
-        string[] roots = targets
-            .Select(target => Path.GetPathRoot(Path.GetFullPath(target.Path)) ?? target.Path)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        string[] roots = PhysicalStorageContext.AllVolumeRoots(
+            targets.Select(target => target.Path)).ToArray();
+        string? accountingRoot = PhysicalStorageContext.SingleLocalVolumeRoot(
+            targets.Select(target => target.Path));
         var volumes = new List<VolumeStorageInfo>();
         foreach (string root in roots)
         {
@@ -997,7 +1004,11 @@ public partial class MainWindow : FluentWindow
         {
             _statVolume.Text = roots.Length == 0 ? string.Empty : "Volume information unavailable";
             if (_result is not null)
+            {
                 _diskUsageSummaryView.SetResult(_result, limitations: _summaryLimitations);
+                _physicalStorageSummaryView.SetAccounting(PhysicalStorageAccounting.Calculate(_result,
+                    isPartial: true));
+            }
             return;
         }
 
@@ -1015,7 +1026,11 @@ public partial class MainWindow : FluentWindow
                 $"{SizeFormatter.FormatBytes(volume.ClusterSize)} clusters · " +
                 $"serial {volume.SerialNumberText}";
             if (_result is not null)
+            {
                 _diskUsageSummaryView.SetResult(_result, volume.TotalBytes, _summaryLimitations);
+                _physicalStorageSummaryView.SetAccounting(PhysicalStorageAccounting.Calculate(_result,
+                    volume, _summaryLimitations.Count > 0));
+            }
             return;
         }
 
@@ -1026,7 +1041,11 @@ public partial class MainWindow : FluentWindow
             $"{volumes.Count} volumes · {SizeFormatter.FormatBytes(used)} used of " +
             $"{SizeFormatter.FormatBytes(total)} ({SizeFormatter.FormatBytes(free)} free)";
         if (_result is not null)
+        {
             _diskUsageSummaryView.SetResult(_result, total, _summaryLimitations);
+            _physicalStorageSummaryView.SetAccounting(PhysicalStorageAccounting.Calculate(_result,
+                isPartial: true));
+        }
     }
 
     static ulong SumSaturating(IEnumerable<ulong> values)

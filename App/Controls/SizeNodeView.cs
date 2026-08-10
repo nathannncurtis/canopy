@@ -9,6 +9,9 @@ public sealed class SizeNodeView : System.ComponentModel.INotifyPropertyChanged
     public uint               Index      { get; init; }
     public string             Name       { get; init; } = string.Empty;
     public ulong              Size       { get; init; }
+    public ulong              LogicalSize { get; init; }
+    public ulong              AllocatedSize { get; init; }
+    public ulong              PhysicalAllocatedSize { get; init; }
     public bool               IsDir      { get; init; }
     public ulong              ParentSize { get; init; }
     public List<SizeNodeView> Children   { get; } = new();
@@ -24,4 +27,6 @@ public sealed class SizeNodeView : System.ComponentModel.INotifyPropertyChanged
         : 0.0;
 
     public string SizeText => Helpers.SizeFormatter.FormatBytes(Size);
+    public string LogicalSizeText => $"L: {Helpers.SizeFormatter.FormatBytes(LogicalSize)}";
+    public string AllocatedSizeText => $"A: {Helpers.SizeFormatter.FormatBytes(AllocatedSize)}";
 }

@@ -13,4 +13,4 @@ private:
 };
 
 SmonNodeMetadata BuildMftNodeMetadata(DWORD volume_serial, uint64_t file_reference,
-    const FILE_STANDARD_INFO& standard_info, bool directory);
+    const FILE_STANDARD_INFO& standard_info, bool directory, DWORD file_attributes = 0);

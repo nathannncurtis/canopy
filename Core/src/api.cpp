@@ -49,7 +49,8 @@ BOOL WINAPI Smon_GetCapabilities(SmonCapabilities* capabilities)
                   SMON_CAP_ERROR_INFO |
                   SMON_CAP_SCAN_TELEMETRY |
                   SMON_CAP_ROUTE_INFO |
-                  SMON_CAP_NODE_METADATA;
+                  SMON_CAP_NODE_METADATA |
+                  SMON_CAP_BULK_NODE_METADATA;
 #if defined(SMON_ENABLE_AVX2_SUM)
     if (CpuHasAvx2()) value.flags |= SMON_CAP_AVX2_ASM;
 #endif
@@ -330,6 +331,35 @@ BOOL WINAPI Smon_GetNodeMetadata(ScanHandle h, uint32_t index, SmonNodeMetadata*
     SmonNodeMetadata value = ctx->node_metadata[index];
     value.struct_size = sizeof(value);
     std::memcpy(metadata, &value, caller_size < sizeof(value) ? caller_size : sizeof(value));
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
+}
+
+BOOL WINAPI Smon_CopyNodeMetadata(ScanHandle h, SmonNodeMetadata* metadata,
+                                  uint32_t capacity, uint32_t element_size,
+                                  uint32_t* required_count)
+{
+    if (!h || !required_count || element_size != sizeof(SmonNodeMetadata)) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    auto* ctx = static_cast<ScanContext*>(h);
+    if (ctx->node_metadata.size() > UINT32_MAX) {
+        SetLastError(ERROR_ARITHMETIC_OVERFLOW);
+        return FALSE;
+    }
+    const uint32_t count = static_cast<uint32_t>(ctx->node_metadata.size());
+    *required_count = count;
+    if (capacity < count) {
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return FALSE;
+    }
+    if (count != 0 && !metadata) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    if (count != 0)
+        std::memcpy(metadata, ctx->node_metadata.data(), sizeof(SmonNodeMetadata) * count);
     SetLastError(ERROR_SUCCESS);
     return TRUE;
 }

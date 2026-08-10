@@ -7,8 +7,8 @@
         <ComboBoxItem Content="Name"/><ComboBoxItem Content="Name and size"/><ComboBoxItem Content="Name, size, percent"/><ComboBoxItem Content="Hidden"/>
       </ComboBox>
       <TextBlock Text="Color by" VerticalAlignment="Center" Margin="12,0,5,0" />
-      <ComboBox x:Name="_colors" Width="145" SelectionChanged="OnChanged" AutomationProperties.Name="Treemap color scheme">
-        <ComboBoxItem Content="Sibling order"/><ComboBoxItem Content="Extension"/><ComboBoxItem Content="Top-level folder"/>
+      <ComboBox x:Name="_colors" Width="175" SelectionChanged="OnChanged" AutomationProperties.Name="Treemap color scheme">
+        <ComboBoxItem Content="Sibling order"/><ComboBoxItem Content="Extension"/><ComboBoxItem Content="Top-level folder"/><ComboBoxItem Content="Allocation overhead"/>
       </ComboBox>
       <ItemsControl x:Name="_legend" Margin="14,0,0,0" VerticalAlignment="Center" AutomationProperties.Name="Treemap color legend">
         <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>

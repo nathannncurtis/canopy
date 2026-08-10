@@ -1,0 +1,17 @@
+<UserControl x:Class="SizeMonitor.Controls.PhysicalStorageSummaryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid Margin="8">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <Grid.RowDefinitions>
+      <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
+    </Grid.RowDefinitions>
+    <TextBlock Grid.Row="0" Text="Logical" Margin="0,0,12,3"/><TextBlock Grid.Row="0" Grid.Column="1" x:Name="_logical"/>
+    <TextBlock Grid.Row="1" Text="Allocated" Margin="0,0,12,3"/><TextBlock Grid.Row="1" Grid.Column="1" x:Name="_allocated"/>
+    <TextBlock Grid.Row="2" Text="Compression savings" Margin="0,0,12,3"/><TextBlock Grid.Row="2" Grid.Column="1" x:Name="_savings"/>
+    <TextBlock Grid.Row="3" Text="Sparse-file savings" Margin="0,0,12,3"/><TextBlock Grid.Row="3" Grid.Column="1" x:Name="_sparse"/>
+    <TextBlock Grid.Row="4" Text="Allocation overhead" Margin="0,0,12,3"/><TextBlock Grid.Row="4" Grid.Column="1" x:Name="_overhead"/>
+    <TextBlock Grid.Row="5" Text="Unaccounted used" Margin="0,0,12,3"/><TextBlock Grid.Row="5" Grid.Column="1" x:Name="_unaccounted"/>
+    <TextBlock Grid.Row="6" Text="Reserved / system managed" Margin="0,0,12,0"/><TextBlock Grid.Row="6" Grid.Column="1" x:Name="_reserved"/>
+  </Grid>
+</UserControl>

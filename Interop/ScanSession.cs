@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 namespace SizeMonitor.Interop;
@@ -182,9 +183,63 @@ public sealed class ScanSession : IDisposable
             ScanErrorInfo details = ScanErrorInfo.Read(handle);
             lock (_gate) _lastErrorInfo = details;
             if (!succeeded) throw new ScanException(details.Win32Error, errorInfo: details);
-            return ScanResultManaged.FromNative(native);
+            ScanResultManaged result = ScanResultManaged.FromNative(native);
+            ScanNodeMetadata?[] metadata = CopyMetadata(handle, result.Nodes.Length);
+            result.Metadata = metadata;
+            PhysicalStorageMetadata.RollUpDirectories(result);
+            return result;
         }
     }
+
+    static unsafe ScanNodeMetadata?[] CopyMetadata(SafeScanHandle handle, int nodeCount)
+    {
+        var native = new SmonNodeMetadataNative[nodeCount];
+        try
+        {
+            fixed (SmonNodeMetadataNative* buffer = native)
+            {
+                if (!Native.Smon_CopyNodeMetadata(handle, buffer, checked((uint)nodeCount),
+                        checked((uint)Marshal.SizeOf<SmonNodeMetadataNative>()), out uint required))
+                {
+                    int error = Marshal.GetLastPInvokeError();
+                    throw new Win32Exception(error, "Could not copy scan node metadata.");
+                }
+                if (required != (uint)nodeCount)
+                    throw new InvalidDataException(
+                        $"Native metadata count {required} did not match result node count {nodeCount}.");
+            }
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return CopyMetadataLegacy(handle, nodeCount);
+        }
+
+        var managed = new ScanNodeMetadata?[nodeCount];
+        for (int index = 0; index < native.Length; index++)
+        {
+            SmonNodeMetadataNative value = native[index];
+            managed[index] = new(value.Flags, value.LinkCount, value.VolumeSerial, value.FileId,
+                value.LogicalBytes, value.AllocatedBytes, value.UniquelyAccountedBytes);
+        }
+        return managed;
+    }
+
+    static ScanNodeMetadata?[] CopyMetadataLegacy(SafeScanHandle handle, int nodeCount)
+    {
+        var metadata = new ScanNodeMetadata?[nodeCount];
+        for (uint index = 0; index < metadata.Length; index++)
+        {
+            var value = new SmonNodeMetadataNative
+            {
+                StructSize = checked((uint)Marshal.SizeOf<SmonNodeMetadataNative>()),
+            };
+            if (Native.Smon_GetNodeMetadata(handle, index, ref value))
+                metadata[index] = new(value.Flags, value.LinkCount, value.VolumeSerial, value.FileId,
+                    value.LogicalBytes, value.AllocatedBytes, value.UniquelyAccountedBytes);
+        }
+        return metadata;
+    }
+
 
     SafeScanHandle? GetHandle(bool throwIfDisposed)
     {

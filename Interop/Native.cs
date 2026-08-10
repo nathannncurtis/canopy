@@ -71,6 +71,11 @@ internal static unsafe class Native
     internal static extern bool Smon_GetNodeMetadata(SafeScanHandle handle, uint nodeIndex,
         ref SmonNodeMetadataNative metadata);
 
+    [DllImport(Dll, ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool Smon_CopyNodeMetadata(SafeScanHandle handle,
+        SmonNodeMetadataNative* metadata, uint capacity, uint elementSize, out uint requiredCount);
+
     [DllImport(Dll, ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool Smon_GetResult(SafeScanHandle handle, ScanResultNative* result);

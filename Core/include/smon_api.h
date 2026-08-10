@@ -36,10 +36,13 @@
 #define SMON_CAP_ARM64_INTRINSICS  0x00000080ull
 #define SMON_CAP_ROUTE_INFO         0x00000100ull
 #define SMON_CAP_NODE_METADATA      0x00000200ull
+#define SMON_CAP_BULK_NODE_METADATA 0x00000400ull
 
 #define SMON_NODE_META_UNIQUE_ALLOCATION 0x01u
 #define SMON_NODE_META_CYCLE_EDGE        0x02u
 #define SMON_NODE_META_CANONICAL_LINK_ONLY 0x04u // MFT exposes one canonical name per FRN
+#define SMON_NODE_META_COMPRESSED        0x08u
+#define SMON_NODE_META_SPARSE            0x10u
 
 #define SMON_FILESYSTEM_UNKNOWN 0u
 #define SMON_FILESYSTEM_NTFS 1u
@@ -215,6 +218,9 @@ SMON_API DWORD WINAPI Smon_GetScannerKind(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_GetRouteInfo(ScanHandle handle, SmonRouteInfo* route_info);
 SMON_API BOOL WINAPI Smon_GetNodeMetadata(ScanHandle handle, uint32_t node_index,
                                           SmonNodeMetadata* metadata);
+SMON_API BOOL WINAPI Smon_CopyNodeMetadata(ScanHandle handle, SmonNodeMetadata* metadata,
+                                            uint32_t capacity, uint32_t element_size,
+                                            uint32_t* required_count);
 SMON_API BOOL WINAPI Smon_GetResult(ScanHandle handle, ScanResult* out);
 SMON_API void WINAPI Smon_FreeResult(ScanHandle handle);
 SMON_API BOOL WINAPI Smon_IsNtfsVolume(const wchar_t* path);

@@ -55,6 +55,8 @@ public enum ScanNodeMetadataFlags : uint
     UniqueAllocation = 0x01,
     CycleEdge = 0x02,
     CanonicalLinkOnly = 0x04,
+    Compressed = 0x08,
+    Sparse = 0x10,
 }
 
 public sealed record ScanNodeMetadata(ScanNodeMetadataFlags Flags, uint LinkCount,
@@ -128,8 +130,13 @@ public sealed class ScanResultManaged
     public ulong               FileCount  { get; init; }
     public ulong               DirCount   { get; init; }
     public double              ElapsedSec { get; init; }
+    /// <summary>Per-node physical-storage metadata. Empty for legacy/imported results.</summary>
+    public ScanNodeMetadata?[] Metadata   { get; internal set; } = [];
 
     public string GetName(uint nodeIndex) => Names[nodeIndex];
+
+    public ScanNodeMetadata? GetMetadata(uint nodeIndex) =>
+        nodeIndex < (uint)Metadata.Length ? Metadata[nodeIndex] : null;
 
     internal static unsafe ScanResultManaged FromNative(ScanResultNative native)
     {

@@ -92,6 +92,9 @@ public sealed class Treemap : Panel
                     Index      = child,
                     Name       = _result.GetName(child),
                     Size       = cn.Size,
+                    LogicalSize = _result.GetMetadata(child)?.LogicalBytes ?? cn.Size,
+                    AllocatedSize = _result.GetMetadata(child)?.UniquelyAccountedBytes ?? cn.Size,
+                    PhysicalAllocatedSize = _result.GetMetadata(child)?.AllocatedBytes ?? cn.Size,
                     IsDir      = (cn.Flags & ScanNodeFlags.Directory) != 0,
                     ParentSize = root.Size > 0 ? root.Size : 1,
                 };
@@ -110,6 +113,7 @@ public sealed class Treemap : Panel
                 (view.IsDir ? "(directory)" : TreemapPresentationRules.ExtensionKey(view.Name), view.Size)), StandardPalette.Length),
             TreemapColorMode.TopLevelDirectory => TreemapPresentationRules.Legend(children.Select(view =>
                 (TopLevelKey(view.Index), view.Size)), StandardPalette.Length),
+            TreemapColorMode.AllocationOverhead => AllocationOverheadColors.Legend(),
             _ => [],
         };
         LegendChanged?.Invoke(legend);
@@ -133,7 +137,10 @@ public sealed class Treemap : Panel
         };
         int colorIndex = Presentation.Colors == TreemapColorMode.SiblingOrder ? pos % palette.Length :
             TreemapPresentationRules.StableBucket(colorKey, palette.Length);
-        var brush = palette[colorIndex];
+        var brush = Presentation.Colors == TreemapColorMode.AllocationOverhead
+            ? BrushFromArgb(AllocationOverheadColors.Palette[
+                AllocationOverheadColors.Bucket(view.LogicalSize, view.AllocatedSize)])
+            : palette[colorIndex];
         double percentage = view.ParentSize == 0 ? 0 : view.Size * 100d / view.ParentSize;
         string path = BuildPath(view.Index);
         (ulong files, ulong dirs) = DescendantCounts(view.Index);
@@ -144,7 +151,9 @@ public sealed class Treemap : Panel
             BorderThickness = new Thickness(1),
             CornerRadius    = new CornerRadius(2),
             Tag             = view,
-            ToolTip         = $"{path}\nLogical: {Helpers.SizeFormatter.FormatBytes(view.Size)}\nAllocated: unavailable\n" +
+            ToolTip         = $"{path}\nLogical: {Helpers.SizeFormatter.FormatBytes(view.LogicalSize)}\n" +
+                              $"Accounted allocation: {Helpers.SizeFormatter.FormatBytes(view.AllocatedSize)}\n" +
+                              $"Physical allocation: {Helpers.SizeFormatter.FormatBytes(view.PhysicalAllocatedSize)}\n" +
                               $"Parent share: {percentage:F2}%\n{files:N0} files, {dirs:N0} folders\n" +
                               $"Extension: {(view.IsDir ? "(directory)" : TreemapPresentationRules.ExtensionKey(view.Name))}",
             Cursor          = view.IsDir ? Cursors.Hand : Cursors.Arrow,
@@ -257,6 +266,14 @@ public sealed class Treemap : Panel
     static Brush[] BrushesFrom(TreemapPalette palette) => AppearancePreferenceRules.TreemapColors(palette)
         .Select(value => (Brush)new SolidColorBrush(Color.FromArgb((byte)(value >> 24),
             (byte)(value >> 16), (byte)(value >> 8), (byte)value))).ToArray();
+
+    static Brush BrushFromArgb(uint value)
+    {
+        var brush = new SolidColorBrush(Color.FromArgb((byte)(value >> 24), (byte)(value >> 16),
+            (byte)(value >> 8), (byte)value));
+        brush.Freeze();
+        return brush;
+    }
 
     void OnMouseWheel(object sender, MouseWheelEventArgs e)
     {

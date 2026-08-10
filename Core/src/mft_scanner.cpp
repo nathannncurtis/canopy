@@ -384,9 +384,12 @@ DWORD WINAPI MftScanThread(LPVOID param)
 
                 FILE_STANDARD_INFO fsi{};
                 if (GetFileInformationByHandleEx(fh, FileStandardInfo, &fsi, sizeof(fsi))) {
+                    FILE_BASIC_INFO basic{};
+                    DWORD attributes = GetFileInformationByHandleEx(fh, FileBasicInfo, &basic, sizeof(basic))
+                        ? basic.FileAttributes : 0;
                     SmonNodeMetadata& metadata = ctx->node_metadata[i];
                     metadata = BuildMftNodeMetadata(root_info.dwVolumeSerialNumber, frn_by_idx[i],
-                        fsi, (node->flags & SMON_FLAG_DIRECTORY) != 0);
+                        fsi, (node->flags & SMON_FLAG_DIRECTORY) != 0, attributes);
                     node->size = metadata.allocated_bytes;
                     ctx->bytes_seen.fetch_add(node->size, std::memory_order_relaxed);
                 }

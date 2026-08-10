@@ -12,7 +12,9 @@ public sealed record VolumeStorageInfo(
     ulong ClusterSize,
     ulong TotalBytes,
     ulong UsedBytes,
-    ulong FreeBytes)
+    ulong FreeBytes,
+    ulong? ReservedBytes = null,
+    ulong? SystemManagedUnavailableBytes = null)
 {
     public string SerialNumberText => $"{SerialNumber >> 16:X4}-{SerialNumber & 0xffff:X4}";
 
@@ -38,8 +40,9 @@ public sealed record VolumeStorageInfo(
             throw CreateException("read cluster size", root.ToString());
 
         ulong clusterSize = checked((ulong)sectorsPerCluster * bytesPerSector);
+        (ulong? reserved, ulong? unavailable) = VolumeNative.TryGetReservation(root.ToString());
         return FromRaw(root.ToString(), label.ToString(), fileSystem.ToString(),
-            serialNumber, clusterSize, totalBytes, freeBytes);
+            serialNumber, clusterSize, totalBytes, freeBytes, reserved, unavailable);
     }
 
     internal static VolumeStorageInfo FromRaw(
@@ -49,13 +52,16 @@ public sealed record VolumeStorageInfo(
         uint serialNumber,
         ulong clusterSize,
         ulong totalBytes,
-        ulong freeBytes)
+        ulong freeBytes,
+        ulong? reservedBytes = null,
+        ulong? systemManagedUnavailableBytes = null)
     {
         if (freeBytes > totalBytes)
             throw new ArgumentOutOfRangeException(nameof(freeBytes),
                 "Free space cannot exceed total capacity.");
         return new(rootPath, label, fileSystem, serialNumber, clusterSize,
-            totalBytes, totalBytes - freeBytes, freeBytes);
+            totalBytes, totalBytes - freeBytes, freeBytes, reservedBytes,
+            systemManagedUnavailableBytes);
     }
 
     static Win32Exception CreateException(string operation, string path) =>
@@ -103,4 +109,51 @@ static class VolumeNative
         out uint bytesPerSector,
         out uint numberOfFreeClusters,
         out uint totalNumberOfClusters);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct DiskSpaceInformation
+    {
+        public ulong ActualTotalAllocationUnits;
+        public ulong ActualAvailableAllocationUnits;
+        public ulong ActualPoolUnavailableAllocationUnits;
+        public ulong CallerTotalAllocationUnits;
+        public ulong CallerAvailableAllocationUnits;
+        public ulong CallerPoolUnavailableAllocationUnits;
+        public ulong UsedAllocationUnits;
+        public ulong TotalReservedAllocationUnits;
+        public ulong VolumeStorageReserveAllocationUnits;
+        public ulong AvailableCommittedAllocationUnits;
+        public ulong PoolAvailableAllocationUnits;
+        public uint SectorsPerAllocationUnit;
+        public uint BytesPerSector;
+    }
+
+    [DllImport(Kernel32, EntryPoint = "GetDiskSpaceInformationW", CharSet = CharSet.Unicode,
+        ExactSpelling = true, SetLastError = true)]
+    [PreserveSig]
+    static extern int GetDiskSpaceInformation(string rootPath, out DiskSpaceInformation information);
+
+    internal static (ulong? Reserved, ulong? SystemUnavailable) TryGetReservation(string rootPath)
+    {
+        try
+        {
+            int result = GetDiskSpaceInformation(rootPath, out DiskSpaceInformation value);
+            return ConvertReservation(result, value);
+        }
+        catch (EntryPointNotFoundException) { return (null, null); }
+        catch (DllNotFoundException) { return (null, null); }
+    }
+
+    internal static (ulong? Reserved, ulong? SystemUnavailable) ConvertReservation(
+        int hresult, DiskSpaceInformation value)
+    {
+        if (hresult < 0) return (null, null);
+        ulong allocationUnitBytes = MultiplyOrMax(value.SectorsPerAllocationUnit, value.BytesPerSector);
+        if (allocationUnitBytes == 0) return (null, null);
+        return (MultiplyOrMax(value.TotalReservedAllocationUnits, allocationUnitBytes),
+            MultiplyOrMax(value.ActualPoolUnavailableAllocationUnits, allocationUnitBytes));
+    }
+
+    static ulong MultiplyOrMax(ulong left, ulong right) =>
+        left != 0 && right > ulong.MaxValue / left ? ulong.MaxValue : left * right;
 }
