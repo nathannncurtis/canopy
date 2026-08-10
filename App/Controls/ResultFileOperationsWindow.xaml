@@ -1,0 +1,21 @@
+<Window x:Class="SizeMonitor.Controls.ResultFileOperationsWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Manage selected items" Width="760" Height="520" WindowStartupLocation="CenterOwner">
+  <Grid Margin="16"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <StackPanel Orientation="Horizontal">
+      <TextBlock Text="Operation" VerticalAlignment="Center" Margin="0,0,8,0"/>
+      <ComboBox x:Name="_kind" Width="190" SelectedIndex="0" SelectionChanged="OnInputChanged" AutomationProperties.Name="File operation">
+        <ComboBoxItem Content="Rename"/><ComboBoxItem Content="Move"/><ComboBoxItem Content="NTFS compress"/><ComboBoxItem Content="NTFS decompress"/><ComboBoxItem Content="Create ZIP archive"/>
+      </ComboBox>
+    </StackPanel>
+    <DockPanel Grid.Row="1" Margin="0,10"><TextBlock x:Name="_destinationMode" DockPanel.Dock="Left" Text="New sibling name or path" VerticalAlignment="Center" Margin="0,0,8,0"/><Button x:Name="_browse" DockPanel.Dock="Right" Content="Browse…" Click="OnBrowse" Margin="8,0,0,0"/><TextBox x:Name="_destination" TextChanged="OnInputChanged" AutomationProperties.Name="Destination path"/></DockPanel>
+    <DataGrid Grid.Row="2" x:Name="_preview" IsReadOnly="True" AutoGenerateColumns="False" AutomationProperties.Name="Operation preview">
+      <DataGrid.Columns><DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="2*"/><DataGridTextColumn Header="Destination" Binding="{Binding Destination}" Width="2*"/><DataGridTextColumn Header="Validation" Binding="{Binding Error}" Width="*"/></DataGrid.Columns>
+    </DataGrid>
+    <StackPanel Grid.Row="3" Margin="0,10">
+      <CheckBox x:Name="_confirmed" Content="I reviewed these exact targets and confirm this operation" Checked="OnConfirmChanged" Unchecked="OnConfirmChanged"/>
+      <TextBlock x:Name="_status" Margin="0,6,0,0" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+    </StackPanel>
+    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button Content="Refresh preview" Click="OnPreview" Margin="0,0,8,0"/><Button x:Name="_execute" Content="Execute" Click="OnExecute" IsEnabled="False" Margin="0,0,8,0"/><Button x:Name="_cancel" Content="Cancel operation" Click="OnCancel" IsEnabled="False" Margin="0,0,8,0"/><Button Content="Close" IsCancel="True"/>
+    </StackPanel>
+  </Grid>
+</Window>

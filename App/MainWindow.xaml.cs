@@ -1129,6 +1129,11 @@ public partial class MainWindow : FluentWindow
         if (_selection.Items.Count == 0) return;
         try
         {
+            if (action == SelectionAction.ManageFiles)
+            {
+                new ResultFileOperationsWindow(_selection) { Owner = this }.ShowDialog();
+                return;
+            }
             if (action is SelectionAction.CopyPaths or SelectionAction.CopyText or SelectionAction.CopyCsv)
             {
                 string text = action switch
