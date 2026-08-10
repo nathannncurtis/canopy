@@ -6,12 +6,14 @@ bool FileAllocationTracker::Account(DWORD volume_serial, uint64_t file_id)
 }
 
 SmonNodeMetadata BuildMftNodeMetadata(DWORD volume_serial, uint64_t file_reference,
-    const FILE_STANDARD_INFO& info, bool directory)
+    const FILE_STANDARD_INFO& info, bool directory, DWORD file_attributes)
 {
     SmonNodeMetadata metadata{};
     metadata.struct_size = sizeof(metadata);
     metadata.flags = SMON_NODE_META_UNIQUE_ALLOCATION;
     if (info.NumberOfLinks > 1) metadata.flags |= SMON_NODE_META_CANONICAL_LINK_ONLY;
+    if (file_attributes & FILE_ATTRIBUTE_COMPRESSED) metadata.flags |= SMON_NODE_META_COMPRESSED;
+    if (file_attributes & FILE_ATTRIBUTE_SPARSE_FILE) metadata.flags |= SMON_NODE_META_SPARSE;
     metadata.link_count = info.NumberOfLinks;
     metadata.volume_serial = volume_serial;
     metadata.file_id = file_reference;

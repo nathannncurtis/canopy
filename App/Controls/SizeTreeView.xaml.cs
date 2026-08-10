@@ -114,6 +114,9 @@ public partial class SizeTreeView : UserControl
                 Index      = (uint)i,
                 Name       = result.GetName((uint)i),
                 Size       = n.Size,
+                LogicalSize = result.GetMetadata((uint)i)?.LogicalBytes ?? n.Size,
+                AllocatedSize = result.GetMetadata((uint)i)?.UniquelyAccountedBytes ?? n.Size,
+                PhysicalAllocatedSize = result.GetMetadata((uint)i)?.AllocatedBytes ?? n.Size,
                 IsDir      = (n.Flags & ScanNodeFlags.Directory) != 0,
                 ParentSize = parentSize,
             };

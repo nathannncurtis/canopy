@@ -16,6 +16,7 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="80" />
                     <ColumnDefinition Width="70" />
+                    <ColumnDefinition Width="82" />
                 </Grid.ColumnDefinitions>
 
                 <CheckBox Grid.Column="0" IsChecked="{Binding IsMarked, Mode=OneWay}"
@@ -33,9 +34,12 @@
                              Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"
                              Background="{DynamicResource CardStrokeColorDefaultBrush}" />
 
-                <TextBlock Grid.Column="3" Text="{Binding SizeText}"
+                <TextBlock Grid.Column="3" Text="{Binding LogicalSizeText}"
                            HorizontalAlignment="Right" VerticalAlignment="Center"
-                           Opacity="0.7" FontSize="11" />
+                           Opacity="0.7" FontSize="11" ToolTip="Logical size" />
+                <TextBlock Grid.Column="4" Text="{Binding AllocatedSizeText}"
+                           HorizontalAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0"
+                           Opacity="0.7" FontSize="11" ToolTip="Uniquely accounted allocated size (hard links counted once)" />
             </Grid>
         </HierarchicalDataTemplate>
     </UserControl.Resources>

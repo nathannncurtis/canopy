@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace SizeMonitor.Interop;
 
 public enum TreemapLabelMode { Name, NameAndSize, NameSizeAndPercent, Hidden }
-public enum TreemapColorMode { SiblingOrder, Extension, TopLevelDirectory }
+public enum TreemapColorMode { SiblingOrder, Extension, TopLevelDirectory, AllocationOverhead }
 public sealed record TreemapPresentationPreferences
 {
     public int Version { get; init; } = 1;
@@ -35,7 +35,8 @@ public readonly record struct TreemapViewport(double Scale, double X, double Y)
     static bool FinitePositive(double value) => double.IsFinite(value) && value > 0;
 }
 
-public sealed record TreemapLegendEntry(string Key, int Bucket, ulong Bytes, bool IsOther = false);
+public sealed record TreemapLegendEntry(string Key, int Bucket, ulong Bytes, bool IsOther = false,
+    uint? ColorArgb = null);
 public sealed record TreemapHierarchyMetrics(IReadOnlyList<(ulong Files, ulong Directories)> Counts, ulong WorkItems)
 {
     public static TreemapHierarchyMetrics Calculate(ScanResultManaged result)

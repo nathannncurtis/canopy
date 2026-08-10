@@ -17,6 +17,7 @@ public enum CoreCapability : ulong
     Arm64Intrinsics = 0x00000080,
     RouteInfo = 0x00000100,
     NodeMetadata = 0x00000200,
+    BulkNodeMetadata = 0x00000400,
 }
 
 public enum FilesystemKind : uint { Unknown, Ntfs, Refs, Fat, Fat32, Exfat, Other, Network }

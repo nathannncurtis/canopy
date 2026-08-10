@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cwchar>
 #include <cstddef>
+#include <vector>
 
 static bool Check(bool condition, const wchar_t* message)
 {
@@ -44,6 +45,8 @@ int wmain(int argc, wchar_t* argv[])
                L"structured error capability") ||
         !Check((capabilities.flags & SMON_CAP_SCAN_TELEMETRY) != 0,
                L"scan telemetry capability") ||
+        !Check((capabilities.flags & SMON_CAP_BULK_NODE_METADATA) != 0,
+               L"bulk node metadata capability") ||
 #if defined(_M_ARM64)
         !Check((capabilities.flags & SMON_CAP_ARM64_INTRINSICS) != 0,
                L"ARM64 intrinsic capability") ||
@@ -187,6 +190,38 @@ int wmain(int argc, wchar_t* argv[])
     if (!Check(Smon_GetNodeMetadata(filtered_handle, 0, &root_metadata),
                L"root metadata query succeeds") ||
         !Check(root_metadata.link_count >= 1, L"root metadata exposes link count")) return 1;
+    uint32_t metadata_count = 0;
+    if (!Check(!Smon_CopyNodeMetadata(nullptr, nullptr, 0, sizeof(SmonNodeMetadata),
+                                      &metadata_count) &&
+               GetLastError() == ERROR_INVALID_PARAMETER, L"bulk metadata rejects null handle") ||
+        !Check(!Smon_CopyNodeMetadata(filtered_handle, nullptr, 0, sizeof(SmonNodeMetadata),
+                                      nullptr) &&
+               GetLastError() == ERROR_INVALID_PARAMETER, L"bulk metadata requires count output") ||
+        !Check(!Smon_CopyNodeMetadata(filtered_handle, nullptr, 0, sizeof(SmonNodeMetadata),
+                                      &metadata_count) &&
+               GetLastError() == ERROR_INSUFFICIENT_BUFFER &&
+               metadata_count == filtered_result.node_count,
+               L"bulk metadata zero-capacity query reports required count") ||
+        !Check(!Smon_CopyNodeMetadata(filtered_handle, nullptr, metadata_count,
+                                      sizeof(SmonNodeMetadata), &metadata_count) &&
+               GetLastError() == ERROR_INVALID_PARAMETER,
+               L"bulk metadata rejects null destination") ||
+        !Check(!Smon_CopyNodeMetadata(filtered_handle, nullptr, 0,
+                                      sizeof(SmonNodeMetadata) - 1, &metadata_count) &&
+               GetLastError() == ERROR_INVALID_PARAMETER,
+               L"bulk metadata validates element size")) return 1;
+    std::vector<SmonNodeMetadata> copied(metadata_count);
+    if (metadata_count > 1 &&
+        !Check(!Smon_CopyNodeMetadata(filtered_handle, copied.data(), metadata_count - 1,
+                                      sizeof(SmonNodeMetadata), &metadata_count) &&
+               GetLastError() == ERROR_INSUFFICIENT_BUFFER,
+               L"bulk metadata rejects a short destination")) return 1;
+    if (!Check(Smon_CopyNodeMetadata(filtered_handle, copied.data(),
+                                     static_cast<uint32_t>(copied.size()),
+                                     sizeof(SmonNodeMetadata), &metadata_count),
+               L"bulk metadata copies the complete array") ||
+        !Check(metadata_count == copied.size() && copied[0].link_count == root_metadata.link_count,
+               L"bulk metadata matches individual query")) return 1;
     for (uint32_t i = 0; i < filtered_result.node_count; ++i) {
         const ScanNode& node = filtered_result.nodes[i];
         const wchar_t* name = filtered_result.name_buf + node.name_offset;

@@ -226,6 +226,15 @@ int wmain()
     std::unordered_map<std::wstring, const ScanNode*> nodes;
     for (uint32_t i = 1; i < result.node_count; ++i)
         nodes.emplace(NodeName(result, result.nodes[i]), &result.nodes[i]);
+    auto metadata_for = [&](const wchar_t* name, SmonNodeMetadata* metadata) {
+        for (uint32_t i = 1; i < result.node_count; ++i) {
+            if (NodeName(result, result.nodes[i]) == name) {
+                metadata->struct_size = sizeof(*metadata);
+                return Smon_GetNodeMetadata(handle, i, metadata) != FALSE;
+            }
+        }
+        return false;
+    };
 
     bool ok = true;
     ok &= Check(nodes.contains(L"ordinary.bin"), L"ordinary file discovered");
@@ -253,17 +262,25 @@ int wmain()
     }
     if (sparse_file) {
         uint64_t expected = AllocationSize(sparse);
+        SmonNodeMetadata metadata{};
         ok &= Check(nodes.contains(L"sparse.bin"), L"sparse file discovered");
         if (nodes.contains(L"sparse.bin"))
             ok &= Check(expected != UINT64_MAX && nodes.at(L"sparse.bin")->size == expected,
-                        L"sparse allocation size reported deterministically");
+                        L"sparse allocation size reported deterministically") &&
+                  Check(metadata_for(L"sparse.bin", &metadata) &&
+                        (metadata.flags & SMON_NODE_META_SPARSE) != 0,
+                        L"sparse storage classification preserved");
     }
     if (compressed_file) {
         uint64_t expected = AllocationSize(compressed);
+        SmonNodeMetadata metadata{};
         ok &= Check(nodes.contains(L"compressed.bin"), L"compressed file discovered");
         if (nodes.contains(L"compressed.bin"))
             ok &= Check(expected != UINT64_MAX && nodes.at(L"compressed.bin")->size == expected,
-                        L"compressed allocation size reported deterministically");
+                        L"compressed allocation size reported deterministically") &&
+                  Check(metadata_for(L"compressed.bin", &metadata) &&
+                        (metadata.flags & SMON_NODE_META_COMPRESSED) != 0,
+                        L"compressed storage classification preserved");
     }
     if (reparse) {
         ok &= Check(nodes.contains(L"racy-dangling-link"), L"dangling reparse point discovered");

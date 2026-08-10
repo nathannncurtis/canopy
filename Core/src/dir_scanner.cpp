@@ -464,6 +464,10 @@ static void NTAPI WorkCallback(PTP_CALLBACK_INSTANCE, PVOID ctx_ptr, PTP_WORK)
                         if (ctx->node_metadata.size() <= idx) ctx->node_metadata.resize(idx + 1);
                         SmonNodeMetadata& metadata = ctx->node_metadata[idx];
                         metadata.struct_size = sizeof(metadata);
+                        if (fdi->FileAttributes & FILE_ATTRIBUTE_COMPRESSED)
+                            metadata.flags |= SMON_NODE_META_COMPRESSED;
+                        if (fdi->FileAttributes & FILE_ATTRIBUTE_SPARSE_FILE)
+                            metadata.flags |= SMON_NODE_META_SPARSE;
                         metadata.link_count = has_file_identity ? file_identity.nNumberOfLinks : 1;
                         metadata.logical_bytes = logical_size;
                         metadata.allocated_bytes = entry_size;

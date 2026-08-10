@@ -99,7 +99,7 @@ if(SMON_ENABLE_AVX2_SUM AND SMON_X64_ASM)
 endif()
 target_compile_definitions(scan_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 if(MSVC)
-    target_compile_options(scan_test PRIVATE /W4 /utf-8)
+    target_compile_options(scan_test PRIVATE /W4 /WX /utf-8)
 endif()
 add_test(NAME native_scan_contract COMMAND scan_test "${CMAKE_CURRENT_SOURCE_DIR}/test")
 

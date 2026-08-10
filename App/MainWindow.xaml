@@ -210,8 +210,15 @@
            </Grid>
           </TabItem>
           <TabItem Header="Summary">
-            <controls:DiskUsageSummaryView x:Name="_diskUsageSummaryView"
-                                           NodeActivated="OnSummaryNodeActivated" />
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel>
+                <GroupBox Header="Physical storage accounting" Margin="12,12,12,0">
+                  <controls:PhysicalStorageSummaryView x:Name="_physicalStorageSummaryView" />
+                </GroupBox>
+                <controls:DiskUsageSummaryView x:Name="_diskUsageSummaryView"
+                                               NodeActivated="OnSummaryNodeActivated" />
+              </StackPanel>
+            </ScrollViewer>
           </TabItem>
           <TabItem Header="Search">
             <controls:SearchResultsView x:Name="_searchView"
